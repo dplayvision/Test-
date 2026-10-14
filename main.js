@@ -9,21 +9,25 @@ const runButton = document.getElementById("run");
 const status = document.getElementById("status");
 const result = document.getElementById("result");
 
+const orderValue = document.getElementById("orderValue");
+const clientValue = document.getElementById("clientValue");
+const chassisValue = document.getElementById("chassisValue");
+const partValue = document.getElementById("partValue");
+const barcodeValue = document.getElementById("barcodeValue");
+
 function showStatus(message) {
   if (status) status.textContent = message;
-}
-
-function getItemText(item) {
-  if (typeof item === "string") return item;
-  return typeof item?.text === "string" ? item.text : "";
 }
 
 function cleanText(value) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
-    .replace(/[|]/g, "I")
     .replace(/[ \t]+/g, " ")
     .trim();
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function extractLabelInfo(rawText) {
@@ -32,65 +36,70 @@ function extractLabelInfo(rawText) {
     .map(cleanText)
     .filter(Boolean);
 
-  const allText = cleanText(lines.join(" ")).toUpperCase();
+  const allText = lines.join(" ").toUpperCase();
 
-  // Cherche des identifiants qui ressemblent à une commande.
-  // Exemple : 26CR02833. On n'impose plus une commande de test fixe.
-  const orderCandidates = [
-    ...allText.matchAll(/\b\d{2}\s?[A-Z]{2}\s?\d{4,6}\b/g)
-  ].map(match => match[0].replace(/\s+/g, ""));
+  // Exemples de commandes : 26CR02833. Ce format est une piste,
+  // pas une garantie : vÃ©rifier la valeur sur la photo.
+  const orders = unique(
+    [...allText.matchAll(/\b\d{2}\s?[A-Z]{2}\s?\d{4,6}\b/g)]
+      .map(match => match[0].replace(/\s+/g, ""))
+  );
 
-  // Cherche des références courtes de type P007.
-  const partCandidates = [
-    ...allText.matchAll(/\bP\s?\d{3,5}\b/g)
-  ].map(match => match[0].replace(/\s+/g, ""));
+  const parts = unique(
+    [...allText.matchAll(/\bP\s?\d{3,5}\b/g)]
+      .map(match => match[0].replace(/\s+/g, ""))
+  );
 
-  // Cherche les codes alphanumériques souvent imprimés sous un code-barres.
-  // Exemples possibles : 813C60111A, 814E001248.
-  const barcodeCodeCandidates = [
-    ...allText.matchAll(/\b(?=[A-Z0-9]{8,14}\b)(?=[A-Z0-9]*\d)[A-Z0-9]+\b/g)
-  ].map(match => match[0]).filter(code => {
-    // Écarte les mots ordinaires et privilégie les codes mêlant lettres/chiffres.
-    return /\d/.test(code) && /[A-Z]/.test(code);
-  });
+  const codes = unique(
+    [...allText.matchAll(/\b[A-Z0-9]{8,14}\b/g)]
+      .map(match => match[0])
+      .filter(code => /\d/.test(code) && /[A-Z]/.test(code))
+  );
 
-  // Affiche les lignes complètes pour éviter de perdre les informations
-  // qui ne correspondent pas à un format connu.
-  const unique = values => [...new Set(values)];
+  // Le client ne peut pas Ãªtre dÃ©duit de faÃ§on fiable d'une Ã©tiquette
+  // si son nom n'est pas imprimÃ© dessus.
+  const clientMatch = allText.match(/\bFROIDMANTEAU\b/);
+  const client = clientMatch ? "FROIDMANTEAU" : "";
 
-  return {
-    lines: unique(lines),
-    orders: unique(orderCandidates),
-    parts: unique(partCandidates),
-    barcodeCodes: unique(barcodeCodeCandidates)
-  };
+  // Ne jamais prendre arbitrairement un nombre de 3 chiffres comme chÃ¢ssis :
+  // sur les Ã©tiquettes, il peut s'agir d'une autre donnÃ©e (ex. 053, 003).
+  // On le propose uniquement si une ligne mentionne explicitement CHASSIS.
+  let chassis = "";
+  const chassisLine = lines.find(line => /ch[aÃ¢]ssis/i.test(line));
+  if (chassisLine) {
+    const match = chassisLine.match(/ch[aÃ¢]ssis[^A-Z0-9]{0,12}([A-Z0-9-]{2,12})/i);
+    if (match) chassis = match[1];
+  }
+
+  return { lines, orders, parts, codes, client, chassis };
 }
 
-function displayList(values, emptyMessage = "Non détecté automatiquement") {
-  return values.length ? values.join(" · ") : emptyMessage;
+function setField(element, value, fallback) {
+  if (element) element.textContent = value || fallback;
 }
 
 function renderResults(rawText) {
-  if (!result) return;
-
   const info = extractLabelInfo(rawText);
 
-  const section = (title, value) => `${title}\n${value}`;
+  setField(orderValue, info.orders.join(" Â· "), "Non dÃ©tectÃ©e automatiquement");
+  setField(clientValue, info.client, "Non dÃ©tectÃ© sur cette Ã©tiquette");
+  setField(chassisValue, info.chassis, "Non dÃ©tectÃ© avec certitude");
+  setField(partValue, info.parts.join(" Â· "), "Non dÃ©tectÃ©e automatiquement");
+  setField(barcodeValue, info.codes.join(" Â· "), "Non dÃ©tectÃ© automatiquement");
 
-  const output = [
-    "INFORMATIONS REPÉRÉES",
-    "",
-    section("Commande(s) possible(s) :", displayList(info.orders)),
-    "",
-    section("Référence(s) de pièce possible(s) :", displayList(info.parts)),
-    "",
-    section("Code(s) alphanumérique(s) possible(s) :", displayList(info.barcodeCodes)),
-    "",
-    "TEXTE BRUT DÉTECTÉ",
-    info.lines.length ? info.lines.join("\n") : "Aucun texte détecté."
-  ];
+  if (result) {
+    result.textContent = info.lines.length
+      ? info.lines.join("\n")
+      : "Aucun texte dÃ©tectÃ©.";
+  }
+}
 
-  result.textContent = output.join("\n");
+function resetDetectedFields() {
+  setField(orderValue, "", "En attente de la photo");
+  setField(clientValue, "", "En attente de la photo");
+  setField(chassisValue, "", "En attente de la photo");
+  setField(partValue, "", "En attente de la photo");
+  setField(barcodeValue, "", "En attente de la photo");
 }
 
 if (photoInput) {
@@ -100,8 +109,9 @@ if (photoInput) {
     if (!file) {
       if (preview) preview.style.display = "none";
       if (runButton) runButton.disabled = true;
-      if (result) result.textContent = "Les résultats apparaîtront ici.";
-      showStatus("Choisis une photo d'étiquette.");
+      if (result) result.textContent = "Les rÃ©sultats apparaÃ®tront ici.";
+      resetDetectedFields();
+      showStatus("Choisis une photo d'Ã©tiquette.");
       return;
     }
 
@@ -112,9 +122,10 @@ if (photoInput) {
       preview.style.display = "block";
     }
 
-    if (result) result.textContent = "Les résultats apparaîtront ici.";
+    if (result) result.textContent = "Les rÃ©sultats apparaÃ®tront ici.";
+    resetDetectedFields();
     if (runButton) runButton.disabled = false;
-    showStatus("Photo chargée. Appuie sur « Lancer PaddleOCR ».");
+    showStatus("Photo chargÃ©e. Appuie sur Â« Lancer PaddleOCR Â».");
   });
 }
 
@@ -130,7 +141,7 @@ if (runButton) {
     runButton.disabled = true;
 
     try {
-      showStatus("Chargement du moteur OCR…");
+      showStatus("Chargement du moteur OCRâ¦");
 
       if (!ocrInstance) {
         ocrInstance = await PaddleOCR.create({
@@ -143,12 +154,11 @@ if (runButton) {
         });
       }
 
-      showStatus("Analyse de la photo en cours…");
+      showStatus("Analyse de la photo en coursâ¦");
       if (result) result.textContent = "";
 
       const prediction = await ocrInstance.predict(file);
 
-      // Selon la version, predict peut renvoyer un tableau ou un objet.
       const resultItems = Array.isArray(prediction)
         ? prediction.flatMap(entry => Array.isArray(entry?.items) ? entry.items : [])
         : Array.isArray(prediction?.items)
@@ -156,7 +166,7 @@ if (runButton) {
           : [];
 
       const lines = resultItems
-        .map(getItemText)
+        .map(item => typeof item === "string" ? item : item?.text)
         .map(cleanText)
         .filter(Boolean);
 
@@ -171,22 +181,19 @@ if (runButton) {
         rawText = prediction.text;
       }
 
-      if (!rawText.trim()) {
-        rawText = "Aucun texte détecté. Essaie une photo plus nette, prise de face, avec l'étiquette bien éclairée.";
-      }
-
       renderResults(rawText);
-      showStatus("Analyse terminée. Vérifie les informations proposées : elles restent à confirmer visuellement.");
+      showStatus(rawText.trim()
+        ? "Analyse terminÃ©e. VÃ©rifie les valeurs proposÃ©es sur la photo."
+        : "Aucun texte dÃ©tectÃ©. Essaie une photo plus nette, prise de face et bien Ã©clairÃ©e.");
     } catch (error) {
       console.error(error);
       showStatus("Erreur OCR : " + (error?.message || String(error)));
-      if (result) {
-        result.textContent = "L'analyse a échoué.\n\n" + (error?.message || String(error));
-      }
+      if (result) result.textContent = "L'analyse a Ã©chouÃ©.\n\n" + (error?.message || String(error));
     } finally {
       runButton.disabled = !photoInput?.files?.[0];
     }
   });
 }
 
-showStatus("Prêt. Choisis une photo d'étiquette.");
+resetDetectedFields();
+showStatus("PrÃªt. Choisis une photo d'Ã©tiquette.");
