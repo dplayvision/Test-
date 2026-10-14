@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -20,6 +20,9 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 @media(max-width:420px){.grid{grid-template-columns:1fr}header h1{font-size:24px}.card{padding:14px}}
 .field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap}
 #ocrResult{font-weight:500;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+#ocrEditor{display:none;width:100%;min-height:150px;margin-top:10px;white-space:pre-wrap;resize:vertical}
+.ocr-actions{margin-top:10px}
+.ocr-actions button{flex:1}
 </style>
 </head>
 <body>
@@ -33,7 +36,18 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <img id="preview" alt="Aperçu de l’étiquette">
 <div class="actions"><button type="button" class="primary" id="readLabelBtn">🔎 Lire le texte de la photo</button><button type="button" class="secondary" id="barcodeBtn">▥ Lire le code-barres de la photo</button><button type="button" class="neutral" id="clearPhotoBtn">Retirer la photo</button></div>
 <div class="status" id="scanStatus" aria-live="polite"></div>
-<div class="field"><strong>Texte brut reconnu (sélectionnable et copiable) :</strong><div id="ocrResult">Le texte reconnu apparaîtra ici.</div><div class="actions"><button type="button" class="secondary" id="copyOcrBtn">📋 Copier le texte brut</button></div></div>
+<div class="field">
+  <strong>Texte brut reconnu :</strong>
+  <div id="ocrResult">Le texte reconnu apparaîtra ici.</div>
+  <textarea id="ocrEditor" rows="7" aria-label="Modifier le texte brut reconnu"></textarea>
+  <div class="actions ocr-actions">
+    <button type="button" class="secondary" id="editOcrBtn">✏️ Modifier</button>
+    <button type="button" class="primary" id="saveOcrEditBtn" style="display:none">💾 Valider</button>
+    <button type="button" class="neutral" id="cancelOcrEditBtn" style="display:none">Annuler</button>
+    <button type="button" class="secondary" id="copyOcrBtn">📋 Copier le texte brut</button>
+  </div>
+  <p class="hint">Tu peux corriger le texte avant d’enregistrer. Les corrections seront conservées dans la fiche.</p>
+</div>
 </section>
 <section class="card"><h2>2. Informations de la commande</h2><label for="clientName">Nom du client</label><input id="clientName" type="text" autocomplete="off" placeholder="Reconnu automatiquement si possible"><label for="orderNo">Numéro de commande *</label><input id="orderNo" type="text" autocomplete="off" placeholder="Ex. : 26CR02781"><label for="frameNo">Numéro du châssis *</label><input id="frameNo" type="text" autocomplete="off" placeholder="Scanner ou encoder le numéro"><p class="hint">Les champs peuvent être corrigés manuellement après la lecture.</p></section>
 <section class="card"><h2>3. Opérations à effectuer</h2><div class="grid" id="operations">
