@@ -1,4 +1,4 @@
-DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -36,42 +36,6 @@ img{display:none;width:100%;max-height:330px;object-fit:contain;margin-top:12px;
 <div id="result" class="field">Les résultats apparaîtront ici.</div>
 </section>
 </main>
-<script type="module">
-const $ = id => document.getElementById(id);
-let selectedFile = null, ocrInstance = null;
-$("photo").addEventListener("change", () => {
-  selectedFile = $("photo").files?.[0] || null;
-  $("result").textContent = "Les résultats apparaîtront ici.";
-  if (!selectedFile) { $("preview").style.display = "none"; $("run").disabled = true; return; }
-  $("preview").src = URL.createObjectURL(selectedFile);
-  $("preview").style.display = "block";
-  $("run").disabled = false;
-  $("status").textContent = "Photo chargée. Appuie sur « Lancer PaddleOCR ».";
-});
-$("run").addEventListener("click", async () => {
-  if (!selectedFile) return;
-  $("run").disabled = true;
-  $("status").textContent = "Chargement de PaddleOCR et de ses modèles… Le premier démarrage peut être long. Garde cette page ouverte.";
-  $("result").textContent = "";
-  try {
-    if (!ocrInstance) {
-      const { PaddleOCR } = await import("https://esm.sh/@paddleocr/paddleocr-js@0.4.2");
-      ocrInstance = await PaddleOCR.create({
-        lang: "en",
-        ocrVersion: "PP-OCRv5",
-        ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
-      });
-    }
-    $("status").textContent = "Analyse de la photo en cours…";
-    const [result] = await ocrInstance.predict(selectedFile);
-    const lines = (result?.items || []).map(item => item.text).filter(Boolean);
-    $("result").textContent = lines.length ? lines.join("\n") : "Aucun texte détecté.";
-    $("status").textContent = "Terminé. Compare le texte ci-dessus avec la commande 26CR02342, le client FROIDMANTEAU et le châssis 003.";
-  } catch (error) {
-    console.error(error);
-    $("status").textContent = "Le prototype n’a pas pu démarrer.\n" + (error?.message || String(error)) + "\n\nCela peut venir du chargement du module ou des modèles dans le navigateur. Ton application Scan Châssis principale n’a pas été modifiée.";
-  } finally { $("run").disabled = !selectedFile; }
-});
-</script>
+<script type="module" src="/Test-/main.js"></script>
 </body>
 </html>
