@@ -13,7 +13,7 @@ main{max-width:720px;margin:auto;padding:14px;display:grid;gap:14px}.card{backgr
 input[type=file],button{width:100%;font:inherit;margin-top:10px}button{border:0;border-radius:11px;padding:13px;background:var(--blue);color:white;font-weight:750;min-height:46px}button:disabled{opacity:.5}
 img{display:none;width:100%;max-height:330px;object-fit:contain;margin-top:12px;border-radius:10px;background:#eef2f7}
 #status{font-size:14px;line-height:1.5;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}
-.field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere}
+.field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap}
 .small{font-size:12px;color:var(--muted);line-height:1.5}
 </style>
 </head>
@@ -28,11 +28,14 @@ img{display:none;width:100%;max-height:330px;object-fit:contain;margin-top:12px;
 <div id="status" aria-live="polite">Choisis une photo. Au premier lancement, le chargement du moteur et des modèles peut prendre du temps.</div>
 </section>
 <section class="card">
-<h2>2. Texte détecté</h2>
-<div class="field"><strong>Commande attendue :</strong> 26CR02342</div>
-<div class="field"><strong>Client attendu :</strong> FROIDMANTEAU</div>
-<div class="field"><strong>Châssis attendu :</strong> 003</div>
-<p class="small">Ces valeurs servent de référence visuelle. Le prototype affiche le texte brut reconnu ; il ne remplit pas automatiquement ces champs et ne sauvegarde rien.</p>
+<h2>2. Informations détectées</h2>
+<div class="field"><strong>Commande détectée :</strong> <span id="orderValue">En attente de la photo</span></div>
+<div class="field"><strong>Client détecté :</strong> <span id="clientValue">Non détecté automatiquement</span></div>
+<div class="field"><strong>Châssis détecté :</strong> <span id="chassisValue">Non détecté automatiquement</span></div>
+<div class="field"><strong>Référence de pièce :</strong> <span id="partValue">Non détectée automatiquement</span></div>
+<div class="field"><strong>Code sous le code-barres :</strong> <span id="barcodeValue">Non détecté automatiquement</span></div>
+<p class="small">Les valeurs sont proposées à partir du texte reconnu. Vérifie toujours les caractères sur la photo : l’OCR peut confondre certains chiffres et lettres. Le client et le châssis ne sont pas présents sur toutes les étiquettes.</p>
+<h2 style="margin-top:18px">Texte brut reconnu</h2>
 <div id="result" class="field">Les résultats apparaîtront ici.</div>
 </section>
 </main>
