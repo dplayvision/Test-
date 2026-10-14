@@ -2,6 +2,8 @@ import { PaddleOCR } from "@paddleocr/paddleocr-js";
 
 let ocrInstance = null;
 let previewUrl = null;
+let currentFile = null;
+let isRunning = false;
 
 const photoInput = document.getElementById("photo");
 const preview = document.getElementById("preview");
@@ -19,6 +21,18 @@ function showStatus(message) {
   if (status) status.textContent = message;
 }
 
+function setText(element, value, fallback = "Non détecté") {
+  if (element) element.textContent = value || fallback;
+}
+
+function resetFields(message = "En attente de la photo") {
+  setText(orderValue, "", message);
+  setText(clientValue, "", message);
+  setText(chassisValue, "", message);
+  setText(partValue, "", message);
+  setText(barcodeValue, "", message);
+}
+
 function cleanText(value) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
@@ -30,16 +44,51 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function extractLabelInfo(rawText) {
-  const lines = rawText
-    .split(/\r?\n/)
-    .map(cleanText)
-    .filter(Boolean);
+// Redimensionne les photos trop grandes pour limiter la mémoire utilisée
+// sur iPhone. L'aperçu continue d'utiliser la photo originale.
+async function makeOcrImage(file) {
+  if (!file || !file.type.startsWith("image/")) return file;
 
+  if (typeof createImageBitmap !== "function") return file;
+
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return file;
+  }
+
+  try {
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+
+    if (scale === 1 && file.size < 3_000_000) return file;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+
+    context.drawImage(bitmap, 0, 0, width, height);
+
+    const blob = await new Promise(resolve => {
+      canvas.toBlob(resolve, "image/jpeg", 0.88);
+    });
+
+    return blob || file;
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+function extractLabelInfo(rawText) {
+  const lines = rawText.split(/\r?\n/).map(cleanText).filter(Boolean);
   const allText = lines.join(" ").toUpperCase();
 
-  // Exemples de commandes : 26CR02833. Ce format est une piste,
-  // pas une garantie : vÃ©rifier la valeur sur la photo.
   const orders = unique(
     [...allText.matchAll(/\b\d{2}\s?[A-Z]{2}\s?\d{4,6}\b/g)]
       .map(match => match[0].replace(/\s+/g, ""))
@@ -56,65 +105,84 @@ function extractLabelInfo(rawText) {
       .filter(code => /\d/.test(code) && /[A-Z]/.test(code))
   );
 
-  // Le client ne peut pas Ãªtre dÃ©duit de faÃ§on fiable d'une Ã©tiquette
-  // si son nom n'est pas imprimÃ© dessus.
-  const clientMatch = allText.match(/\bFROIDMANTEAU\b/);
-  const client = clientMatch ? "FROIDMANTEAU" : "";
+  const client = /\bFROIDMANTEAU\b/.test(allText) ? "FROIDMANTEAU" : "";
 
-  // Ne jamais prendre arbitrairement un nombre de 3 chiffres comme chÃ¢ssis :
-  // sur les Ã©tiquettes, il peut s'agir d'une autre donnÃ©e (ex. 053, 003).
-  // On le propose uniquement si une ligne mentionne explicitement CHASSIS.
+  // N'affiche un châssis que si le texte reconnu le relie explicitement
+  // au mot « châssis », afin de ne pas prendre un nombre quelconque.
   let chassis = "";
-  const chassisLine = lines.find(line => /ch[aÃ¢]ssis/i.test(line));
+  const chassisLine = lines.find(line => /ch[aâ]ssis/i.test(line));
   if (chassisLine) {
-    const match = chassisLine.match(/ch[aÃ¢]ssis[^A-Z0-9]{0,12}([A-Z0-9-]{2,12})/i);
+    const match = chassisLine.match(/ch[aâ]ssis[^A-Z0-9]{0,12}([A-Z0-9-]{2,12})/i);
     if (match) chassis = match[1];
   }
 
   return { lines, orders, parts, codes, client, chassis };
 }
 
-function setField(element, value, fallback) {
-  if (element) element.textContent = value || fallback;
-}
-
 function renderResults(rawText) {
   const info = extractLabelInfo(rawText);
 
-  setField(orderValue, info.orders.join(" Â· "), "Non dÃ©tectÃ©e automatiquement");
-  setField(clientValue, info.client, "Non dÃ©tectÃ© sur cette Ã©tiquette");
-  setField(chassisValue, info.chassis, "Non dÃ©tectÃ© avec certitude");
-  setField(partValue, info.parts.join(" Â· "), "Non dÃ©tectÃ©e automatiquement");
-  setField(barcodeValue, info.codes.join(" Â· "), "Non dÃ©tectÃ© automatiquement");
+  setText(orderValue, info.orders.join(" · "), "Non détectée automatiquement");
+  setText(clientValue, info.client, "Non détecté sur cette étiquette");
+  setText(chassisValue, info.chassis, "Non détecté avec certitude");
+  setText(partValue, info.parts.join(" · "), "Non détectée automatiquement");
+  setText(barcodeValue, info.codes.join(" · "), "Non détecté automatiquement");
 
   if (result) {
     result.textContent = info.lines.length
       ? info.lines.join("\n")
-      : "Aucun texte dÃ©tectÃ©.";
+      : "Aucun texte détecté. Essaie une photo plus nette, prise de face et bien éclairée.";
   }
 }
 
-function resetDetectedFields() {
-  setField(orderValue, "", "En attente de la photo");
-  setField(clientValue, "", "En attente de la photo");
-  setField(chassisValue, "", "En attente de la photo");
-  setField(partValue, "", "En attente de la photo");
-  setField(barcodeValue, "", "En attente de la photo");
+function predictionToText(prediction) {
+  const textParts = [];
+
+  function collect(value) {
+    if (!value) return;
+
+    if (typeof value === "string") {
+      textParts.push(value);
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(collect);
+      return;
+    }
+
+    if (typeof value.text === "string" && value.text.trim()) {
+      textParts.push(value.text);
+    }
+
+    if (Array.isArray(value.items)) {
+      value.items.forEach(collect);
+    }
+  }
+
+  collect(prediction);
+  return unique(textParts.map(cleanText)).join("\n");
 }
 
 if (photoInput) {
   photoInput.addEventListener("change", () => {
     const file = photoInput.files?.[0];
+    currentFile = file || null;
 
     if (!file) {
-      if (preview) preview.style.display = "none";
+      if (preview) {
+        preview.removeAttribute("src");
+        preview.style.display = "none";
+      }
       if (runButton) runButton.disabled = true;
-      if (result) result.textContent = "Les rÃ©sultats apparaÃ®tront ici.";
-      resetDetectedFields();
-      showStatus("Choisis une photo d'Ã©tiquette.");
+      if (result) result.textContent = "Les résultats apparaîtront ici.";
+      resetFields();
+      showStatus("Choisis une photo d'étiquette.");
       return;
     }
 
+    // Conserve l'URL de prévisualisation tant que l'utilisateur ne change pas
+    // de photo. Elle n'est pas révoquée au lancement de l'analyse.
     if (preview) {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       previewUrl = URL.createObjectURL(file);
@@ -122,27 +190,40 @@ if (photoInput) {
       preview.style.display = "block";
     }
 
-    if (result) result.textContent = "Les rÃ©sultats apparaÃ®tront ici.";
-    resetDetectedFields();
+    if (result) result.textContent = "Appuie sur « Lancer PaddleOCR » pour démarrer l'analyse.";
+    resetFields("En attente de l'analyse");
     if (runButton) runButton.disabled = false;
-    showStatus("Photo chargÃ©e. Appuie sur Â« Lancer PaddleOCR Â».");
+    showStatus("Photo chargée. Appuie sur « Lancer PaddleOCR ».");
   });
 }
 
 if (runButton) {
-  runButton.addEventListener("click", async () => {
-    const file = photoInput?.files?.[0];
+  runButton.addEventListener("click", async event => {
+    event.preventDefault();
 
+    if (isRunning) return;
+
+    const file = currentFile || photoInput?.files?.[0];
     if (!file) {
       showStatus("Choisis d'abord une photo.");
       return;
     }
 
+    isRunning = true;
     runButton.disabled = true;
 
-    try {
-      showStatus("Chargement du moteur OCRâ¦");
+    // L'aperçu ne doit pas être masqué pendant l'analyse.
+    if (preview && previewUrl) {
+      preview.src = previewUrl;
+      preview.style.display = "block";
+    }
 
+    try {
+      showStatus("Préparation de la photo pour limiter la mémoire utilisée…");
+
+      const ocrFile = await makeOcrImage(file);
+
+      showStatus("Chargement du moteur OCR…");
       if (!ocrInstance) {
         ocrInstance = await PaddleOCR.create({
           lang: "en",
@@ -154,46 +235,40 @@ if (runButton) {
         });
       }
 
-      showStatus("Analyse de la photo en coursâ¦");
-      if (result) result.textContent = "";
-
-      const prediction = await ocrInstance.predict(file);
-
-      const resultItems = Array.isArray(prediction)
-        ? prediction.flatMap(entry => Array.isArray(entry?.items) ? entry.items : [])
-        : Array.isArray(prediction?.items)
-          ? prediction.items
-          : [];
-
-      const lines = resultItems
-        .map(item => typeof item === "string" ? item : item?.text)
-        .map(cleanText)
-        .filter(Boolean);
-
-      let rawText = lines.join("\n");
-
-      if (!rawText && Array.isArray(prediction)) {
-        rawText = prediction
-          .map(entry => typeof entry?.text === "string" ? entry.text : "")
-          .filter(Boolean)
-          .join("\n");
-      } else if (!rawText && typeof prediction?.text === "string") {
-        rawText = prediction.text;
-      }
+      showStatus("Analyse de la photo en cours… Ne ferme pas la page.");
+      const prediction = await ocrInstance.predict(ocrFile);
+      const rawText = predictionToText(prediction);
 
       renderResults(rawText);
       showStatus(rawText.trim()
-        ? "Analyse terminÃ©e. VÃ©rifie les valeurs proposÃ©es sur la photo."
-        : "Aucun texte dÃ©tectÃ©. Essaie une photo plus nette, prise de face et bien Ã©clairÃ©e.");
+        ? "Analyse terminée. Vérifie les valeurs proposées sur la photo."
+        : "Analyse terminée, mais aucun texte n'a été récupéré. Essaie une photo plus nette.");
+
+      if (preview && previewUrl) {
+        preview.src = previewUrl;
+        preview.style.display = "block";
+      }
     } catch (error) {
-      console.error(error);
+      console.error("Erreur PaddleOCR :", error);
+
       showStatus("Erreur OCR : " + (error?.message || String(error)));
-      if (result) result.textContent = "L'analyse a Ã©chouÃ©.\n\n" + (error?.message || String(error));
+
+      if (result) {
+        result.textContent =
+          "L'analyse a échoué. La photo est conservée ; tu peux réessayer.\n\n" +
+          (error?.message || String(error));
+      }
+
+      if (preview && previewUrl) {
+        preview.src = previewUrl;
+        preview.style.display = "block";
+      }
     } finally {
-      runButton.disabled = !photoInput?.files?.[0];
+      isRunning = false;
+      if (runButton) runButton.disabled = !(currentFile || photoInput?.files?.[0]);
     }
   });
 }
 
-resetDetectedFields();
-showStatus("PrÃªt. Choisis une photo d'Ã©tiquette.");
+resetFields();
+showStatus("Prêt. Choisis une photo d'étiquette.");
