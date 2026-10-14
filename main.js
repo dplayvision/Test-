@@ -210,16 +210,25 @@ function extractFields(raw) {
   const lines = raw.split(/\r?\n/).map(cleanText).filter(Boolean);
   const all = lines.join(" ").toUpperCase();
   const compact = all.replace(/[^A-Z0-9]/g, "");
-  let order = compact.match(/\d{2}CR\d{4,8}/)?.[0] || "";
-  if (!order) {
-    const merged = compact.match(/\d{2}(\d{2}CR\d{4,8})/);
-    if (merged) order = merged[1];
-  }
-  let client = "";
+
+  // Cherche la commande exacte mÃªme si l'OCR colle des chiffres avant (ex. 1626CR02342).
+  const orderMatch = compact.match(/\d{2}CR\d{4,8}/);
+  const order = orderMatch ? orderMatch[0] : "";
+
+  // ReconnaÃ®t les clients connus sans imposer un seul nom.
   const normalized = all.replace(/[^A-Z0-9]/g, "");
-  if (/FRO[I1L]D?MANTEAU/.test(normalized) || normalized.includes("FROIDMANTEAU")) client = "FROIDMANTEAU";
+  let client = "";
+  if (/FRO[I1L]D?MANTEAU/.test(normalized) || normalized.includes("FROIDMANTEAU")) {
+    client = "FROIDMANTEAU";
+  } else if (normalized.includes("BELONCLECYR") || /BELONCLE.*CYR/.test(all)) {
+    client = "BELONCLE CYR";
+  }
+
+  // Le numÃ©ro de chÃ¢ssis est le code court isolÃ© sur sa propre ligne (002, 003, etc.).
   const chassis = lines.find(line => /^\d{3}$/.test(line)) || "";
-  const codes = unique([...all.matchAll(/\b[A-Z0-9]{8,14}\b/g)].map(m => m[0]).filter(v => /\d/.test(v) && /[A-Z]/.test(v) && v !== order));
+  const codes = unique([...all.matchAll(/\b[A-Z0-9]{8,14}\b/g)]
+    .map(m => m[0])
+    .filter(v => /\d/.test(v) && /[A-Z]/.test(v) && v !== order));
   return { lines, order, client, chassis, codes };
 }
 
