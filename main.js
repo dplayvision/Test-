@@ -182,6 +182,30 @@ function predictionToText(prediction) {
   collect(prediction);
   return unique(parts.map(cleanText)).join("\n");
 }
+// PrÃ©pare une copie plus lÃ©gÃ¨re pour lâOCR sans modifier la photo originale sauvegardÃ©e.
+function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) throw new Error("Impossible de prÃ©parer lâimage pour lâOCR.");
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error("Impossible de rÃ©duire la photo pour lâOCR."));
+        }, "image/jpeg", quality);
+      } catch (error) { reject(error); }
+    };
+    image.onerror = () => reject(new Error("La photo ne peut pas Ãªtre dÃ©codÃ©e par le navigateur."));
+    image.src = dataUrl;
+  });
+}
+
 function extractFields(raw) {
   const lines = raw.split(/\r?\n/).map(cleanText).filter(Boolean);
   const all = lines.join(" ").toUpperCase();
@@ -233,12 +257,12 @@ async function runOCR() {
 
     status("scanStatus", "Analyse de la photo en coursâ¦");
 
-    const response = await fetch(savedPhoto);
-    if (!response.ok) throw new Error("Impossible de charger la photo pour lâanalyse.");
+    status("scanStatus", "PrÃ©paration dâune copie lÃ©gÃ¨re de la photoâ¦");
+    $("ocrResult").textContent = "PrÃ©paration de la photo pour lâanalyseâ¦ lâoriginal est conservÃ©.";
+    const blob = await makeOCRBlob(savedPhoto, 1500, 0.82);
 
-    const blob = await response.blob();
-    status("scanStatus", "Analyse OCR : lecture de la photoâ¦");
-    $("ocrResult").textContent = "Analyse en coursâ¦ la photo doit rester affichÃ©e.";
+    status("scanStatus", "Analyse OCR en cours sur la copie allÃ©gÃ©eâ¦");
+    $("ocrResult").textContent = "Analyse en coursâ¦ la photo originale est conservÃ©e.";
     const results = await ocrInstance.predict(blob);
     console.log("RÃ©sultat brut PaddleOCR :", results);
 
@@ -275,7 +299,7 @@ async function runOCR() {
     currentPhotoType = savedPhotoType;
 
     if (savedPhoto) {
-      $("preview").src = savedPhoto;
+      $("preview").setAttribute("src", savedPhoto);
       $("preview").style.display = "block";
     }
 
