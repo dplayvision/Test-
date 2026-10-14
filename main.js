@@ -160,39 +160,85 @@ function extractFields(raw) {
     if (merged) order = merged[1];
   }
   let client = "";
-  if (/FRO[I1L]D?MANTEAU/.test(all.replace(/[^A-Z0-9]/g, "")) || all.replace(/[^A-Z0-9]/g, "").includes("FROIDMANTEAU")) client = "FROIDMANTEAU";
+  const normalized = all.replace(/[^A-Z0-9]/g, "");
+  if (/FRO[I1L]D?MANTEAU/.test(normalized) || normalized.includes("FROIDMANTEAU")) client = "FROIDMANTEAU";
   const chassis = lines.find(line => /^\d{3}$/.test(line)) || "";
   const codes = unique([...all.matchAll(/\b[A-Z0-9]{8,14}\b/g)].map(m => m[0]).filter(v => /\d/.test(v) && /[A-Z]/.test(v) && v !== order));
   return { lines, order, client, chassis, codes };
 }
+
+/* CORRECTION : lâimage dâorigine est conservÃ©e et rÃ©affichÃ©e aprÃ¨s lâOCR. */
 async function runOCR() {
   if (isReading) return;
-  if (!currentPhoto) { status("scanStatus", "Choisis dâabord une photo de lâÃ©tiquette.", true); return; }
-  isReading = true; $("readLabelBtn").disabled = true;
+
+  if (!currentPhoto) {
+    status("scanStatus", "Choisis dâabord une photo de lâÃ©tiquette.", true);
+    return;
+  }
+
+  const savedPhoto = currentPhoto;
+  const savedPhotoType = currentPhotoType;
+
+  isReading = true;
+  $("readLabelBtn").disabled = true;
+
   try {
+    $("preview").src = savedPhoto;
+    $("preview").style.display = "block";
+
     status("scanStatus", "Chargement du moteur OCRâ¦");
+
     if (!ocrInstance) {
       ocrInstance = await PaddleOCR.create({
-        lang: "en", ocrVersion: "PP-OCRv5",
-        ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
+        lang: "en",
+        ocrVersion: "PP-OCRv5",
+        ortOptions: {
+          backend: "wasm",
+          wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/"
+        }
       });
     }
+
     status("scanStatus", "Analyse de la photo en coursâ¦");
-    const response = await fetch(currentPhoto);
+
+    const response = await fetch(savedPhoto);
+    if (!response.ok) throw new Error("Impossible de charger la photo pour lâanalyse.");
+
     const blob = await response.blob();
     const prediction = await ocrInstance.predict(blob);
     const raw = predictionToText(prediction);
-    $("ocrResult").textContent = raw || "Aucun texte dÃ©tectÃ©. Essaie une photo plus nette, prise de face et bien Ã©clairÃ©e.";
+
+    $("ocrResult").textContent = raw ||
+      "Aucun texte dÃ©tectÃ©. Essaie une photo plus nette, prise de face et bien Ã©clairÃ©e.";
+
     const fields = extractFields(raw);
     if (fields.order) $("orderNo").value = fields.order;
     if (fields.client) $("clientName").value = fields.client;
     if (fields.chassis) $("frameNo").value = fields.chassis;
-    status("scanStatus", raw ? "Lecture terminÃ©e. VÃ©rifie les champs et le texte brut avant dâenregistrer." : "Aucun texte rÃ©cupÃ©rÃ©. Tu peux rÃ©essayer.", !raw);
+
+    status(
+      "scanStatus",
+      raw
+        ? "Lecture terminÃ©e. VÃ©rifie les champs avant dâenregistrer."
+        : "Aucun texte rÃ©cupÃ©rÃ©. Tu peux rÃ©essayer.",
+      !raw
+    );
+
   } catch (e) {
     console.error("Erreur PaddleOCR", e);
-    status("scanStatus", "Erreur OCR : " + (e?.message || String(e)) + ". La photo est conservÃ©e.", true);
-    if (!$("ocrResult").textContent || $("ocrResult").textContent === "Le texte reconnu apparaÃ®tra ici.") $("ocrResult").textContent = "La lecture a Ã©chouÃ©. RÃ©essaie.";
-  } finally { isReading = false; $("readLabelBtn").disabled = false; }
+    $("ocrResult").textContent = "La lecture a Ã©chouÃ©. Tu peux rÃ©essayer sans reprendre la photo.";
+    status("scanStatus", "Erreur OCR : " + (e?.message || String(e)), true);
+
+  } finally {
+    currentPhoto = savedPhoto;
+    currentPhotoType = savedPhotoType;
+
+    $("preview").src = savedPhoto;
+    $("preview").style.display = "block";
+
+    isReading = false;
+    $("readLabelBtn").disabled = false;
+  }
 }
 
 $("cameraInput").addEventListener("change", async e => {
