@@ -2,43 +2,45 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f3f6fb">
-<title>Test PaddleOCR — Scan Châssis</title>
+<title>Scan Châssis — Test PaddleOCR</title>
+<script type="module" src="/main.js"></script>
 <style>
-:root{--bg:#f3f6fb;--card:#fff;--ink:#172033;--muted:#65718a;--line:#dfe6f0;--blue:#2563eb}
+:root{--bg:#f3f6fb;--card:#fff;--ink:#172033;--muted:#65718a;--line:#dfe6f0;--blue:#2563eb;--blue2:#1d4ed8;--green:#15803d;--red:#b91c1c;--shadow:0 8px 28px rgba(28,45,80,.08)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
-header{padding:22px 18px;background:linear-gradient(135deg,#173b82,#2563eb);color:white}h1{margin:0 0 6px;font-size:25px}header p{margin:0;color:#e1eaff;font-size:14px}
-main{max-width:720px;margin:auto;padding:14px;display:grid;gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}h2{font-size:18px;margin:0 0 12px}
-input[type=file],button{width:100%;font:inherit;margin-top:10px}button{border:0;border-radius:11px;padding:13px;background:var(--blue);color:white;font-weight:750;min-height:46px}button:disabled{opacity:.5}
-img{display:none;width:100%;max-height:330px;object-fit:contain;margin-top:12px;border-radius:10px;background:#eef2f7}
-#status{font-size:14px;line-height:1.5;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+header{padding:24px 18px 20px;background:linear-gradient(135deg,#173b82,#2563eb);color:#fff}header .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:800}header h1{margin:6px 0;font-size:27px;line-height:1.1}header p{margin:0;color:#e1eaff;font-size:14px}
+main{max-width:760px;margin:0 auto;padding:16px;display:grid;gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:var(--shadow)}h2{font-size:18px;margin:0 0 14px}label{display:block;font-weight:700;font-size:14px;margin:12px 0 6px}
+input[type=text],input[type=search],textarea{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;background:#fff;color:var(--ink);min-height:46px}input:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue)}
+button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:750;cursor:pointer;min-height:44px}.primary{background:var(--blue);color:#fff}.primary:active{background:var(--blue2)}.secondary{background:#e8efff;color:#1e40af}.danger{background:#fee2e2;color:#991b1b}.neutral{background:#edf1f7;color:#243047}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{flex:1}.hint{color:var(--muted);font-size:12px;line-height:1.45;margin:7px 0 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.op{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfcff;font-weight:650;font-size:14px;line-height:1.3}.op input{width:20px;height:20px;flex-shrink:0;accent-color:var(--blue);margin:0}
+#preview{width:100%;max-height:320px;object-fit:contain;background:#f1f5f9;border-radius:12px;margin-top:10px;display:none}#cameraInput{display:none}#liveVideo{transform:translateZ(0)}button:disabled{opacity:.45;cursor:not-allowed}.badge{display:inline-block;border-radius:999px;background:#e8efff;color:#1d4ed8;padding:4px 9px;font-size:12px;font-weight:800}
+.record{border:1px solid var(--line);border-radius:13px;padding:12px;margin-top:10px}.record-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.record h3{margin:0 0 5px;font-size:16px;overflow-wrap:anywhere}.record p{margin:4px 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}.record img{width:100%;max-height:220px;object-fit:contain;border-radius:9px;background:#f1f5f9;margin-top:10px}.record .actions button{font-size:13px;padding:9px}.empty{text-align:center;padding:24px 8px;color:var(--muted)}.status{margin-top:10px;font-size:13px;font-weight:700}footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 25px}
+@media(max-width:420px){.grid{grid-template-columns:1fr}header h1{font-size:24px}.card{padding:14px}}
 .field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap}
-.small{font-size:12px;color:var(--muted);line-height:1.5}
+#ocrResult{font-weight:500;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 </style>
 </head>
 <body>
-<header><h1>🧪 Test PaddleOCR</h1><p>Prototype séparé — ne modifie pas Scan Châssis.</p></header>
+<header><div class="eyebrow">Atelier • Suivi de production</div><h1>📷 Scan Châssis</h1><p>Scanne l’étiquette, coche les opérations et retrouve chaque fiche.</p></header>
 <main>
-<section class="card">
-<h2>1. Choisir une photo d’étiquette</h2>
-<input id="photo" type="file" accept="image/*">
+<section class="card"><h2>1. Étiquette originale</h2>
+<div class="actions" style="margin-top:0"><button type="button" class="primary" id="startScanBtn">📷 Ouvrir le scanner en direct</button><button type="button" class="secondary" id="captureBtn" disabled>📸 Capturer l’étiquette</button><button type="button" class="neutral" id="stopScanBtn" disabled>Fermer la caméra</button></div>
+<video id="liveVideo" playsinline muted style="display:none;width:100%;max-height:360px;object-fit:contain;background:#0f172a;border-radius:12px;margin-top:10px"></video>
+<p class="hint">Le scanner en direct ouvre la caméra. Tu peux capturer la photo originale puis lancer la lecture du texte. Autorise l’accès à la caméra si demandé.</p>
+<label class="file-button secondary" for="cameraInput" style="display:inline-flex;align-items:center;justify-content:center">🖼️ Choisir dans ma photothèque</label><input id="cameraInput" type="file" accept="image/*">
 <img id="preview" alt="Aperçu de l’étiquette">
-<button id="run" disabled>🔎 Lancer PaddleOCR</button>
-<div id="status" aria-live="polite">Choisis une photo. Au premier lancement, le chargement du moteur et des modèles peut prendre du temps.</div>
+<div class="actions"><button type="button" class="primary" id="readLabelBtn">🔎 Lire le texte de la photo</button><button type="button" class="secondary" id="barcodeBtn">▥ Lire le code-barres de la photo</button><button type="button" class="neutral" id="clearPhotoBtn">Retirer la photo</button></div>
+<div class="status" id="scanStatus" aria-live="polite"></div>
+<div class="field"><strong>Texte brut reconnu (sélectionnable et copiable) :</strong><div id="ocrResult">Le texte reconnu apparaîtra ici.</div><div class="actions"><button type="button" class="secondary" id="copyOcrBtn">📋 Copier le texte brut</button></div></div>
 </section>
-<section class="card">
-<h2>2. Informations détectées</h2>
-<div class="field"><strong>Commande détectée :</strong> <span id="orderValue">En attente de la photo</span></div>
-<div class="field"><strong>Client détecté :</strong> <span id="clientValue">Non détecté automatiquement</span></div>
-<div class="field"><strong>Châssis détecté :</strong> <span id="chassisValue">Non détecté automatiquement</span></div>
-<div class="field"><strong>Référence de pièce :</strong> <span id="partValue">Non détectée automatiquement</span></div>
-<div class="field"><strong>Code sous le code-barres :</strong> <span id="barcodeValue">Non détecté automatiquement</span></div>
-<p class="small">Les valeurs sont proposées à partir du texte reconnu. Vérifie toujours les caractères sur la photo : l’OCR peut confondre certains chiffres et lettres. Le client et le châssis ne sont pas présents sur toutes les étiquettes.</p>
-<h2 style="margin-top:18px">Texte brut reconnu</h2>
-<div id="result" class="field">Les résultats apparaîtront ici.</div>
-</section>
-</main>
-<script type="module" src="/main.js"></script>
+<section class="card"><h2>2. Informations de la commande</h2><label for="clientName">Nom du client</label><input id="clientName" type="text" autocomplete="off" placeholder="Reconnu automatiquement si possible"><label for="orderNo">Numéro de commande *</label><input id="orderNo" type="text" autocomplete="off" placeholder="Ex. : 26CR02781"><label for="frameNo">Numéro du châssis *</label><input id="frameNo" type="text" autocomplete="off" placeholder="Scanner ou encoder le numéro"><p class="hint">Les champs peuvent être corrigés manuellement après la lecture.</p></section>
+<section class="card"><h2>3. Opérations à effectuer</h2><div class="grid" id="operations">
+<label class="op"><input type="checkbox" value="Empilage"> <span>Empilage</span></label><label class="op"><input type="checkbox" value="Double empilage"> <span>Double empilage</span></label><label class="op"><input type="checkbox" value="Retour"> <span>Retour</span></label><label class="op"><input type="checkbox" value="Double retour"> <span>Double retour</span></label><label class="op"><input type="checkbox" value="Soudage / Nettoyage ouvrants"> <span>Soudage / Nettoyage ouvrants</span></label><label class="op"><input type="checkbox" value="Soudage / Nettoyage dormants"> <span>Soudage / Nettoyage dormants</span></label></div>
+<label for="notes">Remarque (facultatif)</label><textarea id="notes" rows="2" placeholder="Une précision si nécessaire"></textarea><div class="actions"><button type="button" class="primary" id="saveBtn">💾 Enregistrer la fiche</button><button type="button" class="neutral" id="resetBtn">Nouvelle fiche / Effacer</button></div><div class="status" id="formStatus" aria-live="polite"></div></section>
+<section class="card"><h2>4. Historique et recherche</h2><label for="searchBox">Rechercher une commande ou un châssis</label><input id="searchBox" type="search" placeholder="Tape un numéro…"><div id="records"><div class="empty">Chargement des fiches…</div></div>
+<div class="actions"><button type="button" class="secondary" id="exportBtn">📤 Exporter sauvegarde</button><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
+</main><footer>Les fiches sont stockées sur cet appareil. Export régulier conseillé : le navigateur peut effacer ses données.</footer>
 </body>
 </html>
