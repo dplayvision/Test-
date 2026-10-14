@@ -239,9 +239,14 @@ async function runOCR() {
     const blob = await response.blob();
     status("scanStatus", "Analyse OCR : lecture de la photoâ¦");
     $("ocrResult").textContent = "Analyse en coursâ¦ la photo doit rester affichÃ©e.";
-    const prediction = await ocrInstance.predict(blob);
-    console.log("RÃ©sultat brut PaddleOCR :", prediction);
-    const raw = predictionToText(prediction);
+    const results = await ocrInstance.predict(blob);
+    console.log("RÃ©sultat brut PaddleOCR :", results);
+
+    // RÃ©cupÃ¨re le texte depuis les Ã©lÃ©ments renvoyÃ©s par PaddleOCR.
+    const raw = (Array.isArray(results) ? results : [results])
+      .flatMap(result => (result?.items || []).map(item => item?.text || ""))
+      .filter(Boolean)
+      .join("\n");
 
     $("ocrResult").textContent = raw ||
       "Aucun texte dÃ©tectÃ©. Essaie une photo plus nette, prise de face et bien Ã©clairÃ©e.";
