@@ -1,1 +1,78 @@
-# Test-
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f3f6fb">
+<title>Test PaddleOCR — Scan Châssis</title>
+<style>
+:root{--bg:#f3f6fb;--card:#fff;--ink:#172033;--muted:#65718a;--line:#dfe6f0;--blue:#2563eb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+header{padding:22px 18px;background:linear-gradient(135deg,#173b82,#2563eb);color:white}h1{margin:0 0 6px;font-size:25px}header p{margin:0;color:#e1eaff;font-size:14px}
+main{max-width:720px;margin:auto;padding:14px;display:grid;gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}h2{font-size:18px;margin:0 0 12px}
+input[type=file],button{width:100%;font:inherit;margin-top:10px}button{border:0;border-radius:11px;padding:13px;background:var(--blue);color:white;font-weight:750;min-height:46px}button:disabled{opacity:.5}
+img{display:none;width:100%;max-height:330px;object-fit:contain;margin-top:12px;border-radius:10px;background:#eef2f7}
+#status{font-size:14px;line-height:1.5;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere}
+.small{font-size:12px;color:var(--muted);line-height:1.5}
+</style>
+</head>
+<body>
+<header><h1>🧪 Test PaddleOCR</h1><p>Prototype séparé — ne modifie pas Scan Châssis.</p></header>
+<main>
+<section class="card">
+<h2>1. Choisir une photo d’étiquette</h2>
+<input id="photo" type="file" accept="image/*">
+<img id="preview" alt="Aperçu de l’étiquette">
+<button id="run" disabled>🔎 Lancer PaddleOCR</button>
+<div id="status" aria-live="polite">Choisis une photo. Au premier lancement, le chargement du moteur et des modèles peut prendre du temps.</div>
+</section>
+<section class="card">
+<h2>2. Texte détecté</h2>
+<div class="field"><strong>Commande attendue :</strong> 26CR02342</div>
+<div class="field"><strong>Client attendu :</strong> FROIDMANTEAU</div>
+<div class="field"><strong>Châssis attendu :</strong> 003</div>
+<p class="small">Ces valeurs servent de référence visuelle. Le prototype affiche le texte brut reconnu ; il ne remplit pas automatiquement ces champs et ne sauvegarde rien.</p>
+<div id="result" class="field">Les résultats apparaîtront ici.</div>
+</section>
+</main>
+<script type="module">
+const $ = id => document.getElementById(id);
+let selectedFile = null, ocrInstance = null;
+$("photo").addEventListener("change", () => {
+  selectedFile = $("photo").files?.[0] || null;
+  $("result").textContent = "Les résultats apparaîtront ici.";
+  if (!selectedFile) { $("preview").style.display = "none"; $("run").disabled = true; return; }
+  $("preview").src = URL.createObjectURL(selectedFile);
+  $("preview").style.display = "block";
+  $("run").disabled = false;
+  $("status").textContent = "Photo chargée. Appuie sur « Lancer PaddleOCR ».";
+});
+$("run").addEventListener("click", async () => {
+  if (!selectedFile) return;
+  $("run").disabled = true;
+  $("status").textContent = "Chargement de PaddleOCR et de ses modèles… Le premier démarrage peut être long. Garde cette page ouverte.";
+  $("result").textContent = "";
+  try {
+    if (!ocrInstance) {
+      const { PaddleOCR } = await import("https://esm.sh/@paddleocr/paddleocr-js@0.4.2");
+      ocrInstance = await PaddleOCR.create({
+        lang: "en",
+        ocrVersion: "PP-OCRv5",
+        ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
+      });
+    }
+    $("status").textContent = "Analyse de la photo en cours…";
+    const [result] = await ocrInstance.predict(selectedFile);
+    const lines = (result?.items || []).map(item => item.text).filter(Boolean);
+    $("result").textContent = lines.length ? lines.join("\n") : "Aucun texte détecté.";
+    $("status").textContent = "Terminé. Compare le texte ci-dessus avec la commande 26CR02342, le client FROIDMANTEAU et le châssis 003.";
+  } catch (error) {
+    console.error(error);
+    $("status").textContent = "Le prototype n’a pas pu démarrer.\n" + (error?.message || String(error)) + "\n\nCela peut venir du chargement du module ou des modèles dans le navigateur. Ton application Scan Châssis principale n’a pas été modifiée.";
+  } finally { $("run").disabled = !selectedFile; }
+});
+</script>
+</body>
+</html>
+
