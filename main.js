@@ -180,7 +180,7 @@ function predictionToText(prediction) {
   }
 
   collect(prediction);
-  return unique(parts.map(cleanText)).join("\\n");
+  return unique(parts.map(cleanText)).join("\n");
 }
 function extractFields(raw) {
   const lines = raw.split(/\r?\n/).map(cleanText).filter(Boolean);
@@ -237,6 +237,8 @@ async function runOCR() {
     if (!response.ok) throw new Error("Impossible de charger la photo pour lâanalyse.");
 
     const blob = await response.blob();
+    status("scanStatus", "Analyse OCR : lecture de la photoâ¦");
+    $("ocrResult").textContent = "Analyse en coursâ¦ la photo doit rester affichÃ©e.";
     const prediction = await ocrInstance.predict(blob);
     console.log("RÃ©sultat brut PaddleOCR :", prediction);
     const raw = predictionToText(prediction);
@@ -268,7 +270,7 @@ async function runOCR() {
     currentPhotoType = savedPhotoType;
 
     if (savedPhoto) {
-      $("preview").setAttribute("src", savedPhoto);
+      $("preview").src = savedPhoto;
       $("preview").style.display = "block";
     }
 
