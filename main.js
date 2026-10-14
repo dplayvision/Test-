@@ -5,7 +5,7 @@ import { PaddleOCR } from "@paddleocr/paddleocr-js";
 
 const DB_NAME = "scanChassisDB", DB_VERSION = 1, STORE = "fiches";
 const OPS = ["Empilage","Double empilage","Retour","Double retour","Soudage / Nettoyage ouvrants","Soudage / Nettoyage dormants"];
-let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg";
+let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg", currentOCRText = "";
 let previewUrl = null, liveStream = null, isReading = false, editingId = null;
 
 const $ = id => document.getElementById(id);
@@ -84,7 +84,7 @@ function setPhoto(data, type = "image/jpeg") {
   }
 }
 function resetForm() {
-  editingId = null; setPhoto(null);
+  editingId = null; setPhoto(null); currentOCRText = "";
   $("cameraInput").value = "";
   $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = ""; $("notes").value = "";
   setOps([]); $("saveBtn").textContent = "ð¾ Enregistrer la fiche";
@@ -95,6 +95,8 @@ function loadForm(record) {
   editingId = record.id; setPhoto(record.photo || null, record.photoType || "image/jpeg");
   $("clientName").value = record.clientName || ""; $("orderNo").value = record.orderNo || "";
   $("frameNo").value = record.frameNo || ""; $("notes").value = record.notes || "";
+  currentOCRText = record.ocrText || "";
+  $("ocrResult").textContent = currentOCRText || "Le texte reconnu apparaÃ®tra ici.";
   setOps(record.operations || []); $("cameraInput").value = "";
   $("saveBtn").textContent = "ð¾ Mettre Ã  jour la fiche";
   status("formStatus", "Fiche chargÃ©e. Les modifications seront enregistrÃ©es sur cette fiche.");
@@ -106,7 +108,7 @@ function escapeHTML(value) {
 function renderRecord(record) {
   const article = document.createElement("article"); article.className = "record";
   const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
-  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "â")}</strong></p><p>ChÃ¢ssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opÃ©ration(s)</span></div><p>${ops || "Aucune opÃ©ration cochÃ©e"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${record.photo ? `<img alt="Photo originale de lâÃ©tiquette" src="${record.photo}">` : "<p>Pas de photo enregistrÃ©e</p>"}<div class="actions"><button type="button" class="secondary edit">âï¸ Modifier</button><button type="button" class="danger delete">ðï¸ Supprimer</button></div>`;
+  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "â")}</strong></p><p>ChÃ¢ssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opÃ©ration(s)</span></div><p>${ops || "Aucune opÃ©ration cochÃ©e"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : ""}${record.photo ? `<img alt="Photo originale de lâÃ©tiquette" src="${record.photo}">` : "<p>Pas de photo enregistrÃ©e</p>"}<div class="actions"><button type="button" class="secondary edit">âï¸ Modifier</button><button type="button" class="danger delete">ðï¸ Supprimer</button></div>`;
   article.querySelector(".edit").addEventListener("click", () => loadForm(record));
   article.querySelector(".delete").addEventListener("click", async () => {
     if (!confirm(`Supprimer la fiche commande ${record.orderNo}, chÃ¢ssis ${record.frameNo} ?`)) return;
@@ -281,6 +283,7 @@ async function runOCR() {
       .filter(Boolean)
       .join("\n");
 
+    currentOCRText = raw;
     $("ocrResult").textContent = raw ||
       "Aucun texte dÃ©tectÃ©. Essaie une photo plus nette, prise de face et bien Ã©clairÃ©e.";
 
@@ -321,6 +324,7 @@ $("cameraInput").addEventListener("change", async e => {
   const file = e.target.files?.[0]; if (!file) return;
   try {
     setPhoto(await dataURL(file), file.type);
+    currentOCRText = "";
     $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = "";
     $("ocrResult").textContent = "Photo chargÃ©e. Appuie sur Â« Lire le texte de la photo Â».";
     status("scanStatus", "Photo chargÃ©e. Appuie sur Â« Lire le texte de la photo Â» pour analyser.");
@@ -378,7 +382,7 @@ $("saveBtn").addEventListener("click", async () => {
   if (!frameNo) { status("formStatus", "Le numÃ©ro du chÃ¢ssis est obligatoire.", true); $("frameNo").focus(); return; }
   const now = Date.now();
   try {
-    const record = { clientName: $("clientName").value.trim(), orderNo, frameNo, operations: getOps(), notes: $("notes").value.trim(), photo: currentPhoto, photoType: currentPhotoType, updatedAt: now };
+    const record = { clientName: $("clientName").value.trim(), orderNo, frameNo, operations: getOps(), notes: $("notes").value.trim(), ocrText: currentOCRText || $("ocrResult").textContent.trim(), photo: currentPhoto, photoType: currentPhotoType, updatedAt: now };
     if (editingId) { record.id = editingId; const old = await getRecord(editingId); record.createdAt = old?.createdAt || now; } else record.createdAt = now;
     editingId = await saveRecord(record);
     $("saveBtn").textContent = "ð¾ Mettre Ã  jour la fiche";
@@ -409,7 +413,7 @@ $("importInput").addEventListener("change", async e => {
       if (!item?.orderNo || !item?.frameNo) { skipped++; continue; }
       const existing = await allRecords();
       if (existing.some(r => r.orderNo === item.orderNo && r.frameNo === item.frameNo && JSON.stringify(r.operations || []) === JSON.stringify(item.operations || []))) { skipped++; continue; }
-      await saveRecord({ clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo), operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg", createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now() });
+      await saveRecord({ clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo), operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""), ocrText: String(item.ocrText || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg", createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now() });
       added++;
     }
     await refreshRecords(); status("backupStatus", `Import terminÃ© : ${added} ajoutÃ©e(s), ${skipped} ignorÃ©e(s).`);
