@@ -5,15 +5,15 @@ import { PaddleOCR } from "@paddleocr/paddleocr-js";
 
 const DB_NAME = "scanChassisDB", DB_VERSION = 1, STORE = "fiches";
 const OPS = ["Empilage","Double empilage","Retour","Double retour","Soudage / Nettoyage ouvrants","Soudage / Nettoyage dormants"];
+const OCR_PLACEHOLDER = "Le texte reconnu apparaîtra ici.";
 let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg", currentOCRText = "";
-let previewUrl = null, liveStream = null, isReading = false, editingId = null;
+let previewUrl = null, liveStream = null, isReading = false, editingId = null, ocrEditOpen = false;
 
 const $ = id => document.getElementById(id);
 const status = (id, message, error = false) => {
   const el = $(id);
   if (el) { el.textContent = message; el.style.color = error ? "#b91c1c" : "#15803d"; }
 };
-
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -83,23 +83,35 @@ function setPhoto(data, type = "image/jpeg") {
     $("preview").style.display = "none";
   }
 }
+function setOcrText(text) {
+  currentOCRText = String(text || "");
+  $("ocrResult").textContent = currentOCRText || OCR_PLACEHOLDER;
+}
+function closeOcrEditor() {
+  ocrEditOpen = false;
+  $("ocrEditor").style.display = "none";
+  $("ocrResult").style.display = "block";
+  $("editOcrBtn").style.display = "";
+  $("saveOcrEditBtn").style.display = "none";
+  $("cancelOcrEditBtn").style.display = "none";
+}
 function resetForm() {
   editingId = null; setPhoto(null); currentOCRText = "";
   $("cameraInput").value = "";
   $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = ""; $("notes").value = "";
-  setOps([]); $("saveBtn").textContent = "ð¾ Enregistrer la fiche";
-  $("ocrResult").textContent = "Le texte reconnu apparaÃ®tra ici.";
+  setOps([]); $("saveBtn").textContent = "💾 Enregistrer la fiche";
+  setOcrText(""); $("ocrEditor").value = ""; closeOcrEditor();
   status("formStatus", ""); status("scanStatus", "");
 }
 function loadForm(record) {
   editingId = record.id; setPhoto(record.photo || null, record.photoType || "image/jpeg");
   $("clientName").value = record.clientName || ""; $("orderNo").value = record.orderNo || "";
   $("frameNo").value = record.frameNo || ""; $("notes").value = record.notes || "";
-  currentOCRText = record.ocrText || "";
-  $("ocrResult").textContent = currentOCRText || "Le texte reconnu apparaÃ®tra ici.";
+  setOcrText(record.ocrText || "");
+  $("ocrEditor").value = ""; closeOcrEditor();
   setOps(record.operations || []); $("cameraInput").value = "";
-  $("saveBtn").textContent = "ð¾ Mettre Ã  jour la fiche";
-  status("formStatus", "Fiche chargÃ©e. Les modifications seront enregistrÃ©es sur cette fiche.");
+  $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+  status("formStatus", "Fiche chargée. Les modifications seront enregistrées sur cette fiche.");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function escapeHTML(value) {
@@ -108,10 +120,11 @@ function escapeHTML(value) {
 function renderRecord(record) {
   const article = document.createElement("article"); article.className = "record";
   const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
-  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "â")}</strong></p><p>ChÃ¢ssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opÃ©ration(s)</span></div><p>${ops || "Aucune opÃ©ration cochÃ©e"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : ""}${record.photo ? `<img alt="Photo originale de lâÃ©tiquette" src="${record.photo}">` : "<p>Pas de photo enregistrÃ©e</p>"}<div class="actions"><button type="button" class="secondary edit">âï¸ Modifier</button><button type="button" class="danger delete">ðï¸ Supprimer</button></div>`;
+  const rawTextBlock = record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : "";
+  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p><p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opération(s)</span></div><p>${ops || "Aucune opération cochée"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${rawTextBlock}${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}<div class="actions"><button type="button" class="secondary edit">✏️ Modifier</button><button type="button" class="danger delete">🗑️ Supprimer</button></div>`;
   article.querySelector(".edit").addEventListener("click", () => loadForm(record));
   article.querySelector(".delete").addEventListener("click", async () => {
-    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, chÃ¢ssis ${record.frameNo} ?`)) return;
+    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, châssis ${record.frameNo} ?`)) return;
     try { await deleteRecord(record.id); await refreshRecords(); if (editingId === record.id) resetForm(); }
     catch (e) { alert("Impossible de supprimer la fiche : " + e.message); }
   });
@@ -121,11 +134,11 @@ async function refreshRecords() {
   const container = $("records");
   try {
     const records = await allRecords(), query = $("searchBox").value.trim().toLocaleLowerCase("fr");
-    const filtered = records.filter(r => [r.clientName, r.orderNo, r.frameNo, ...(r.operations || [])].some(v => String(v || "").toLocaleLowerCase("fr").includes(query)));
+    const filtered = records.filter(r => [r.clientName, r.orderNo, r.frameNo, r.ocrText, ...(r.operations || [])].some(v => String(v || "").toLocaleLowerCase("fr").includes(query)));
     container.replaceChildren();
     if (!filtered.length) {
       const empty = document.createElement("div"); empty.className = "empty";
-      empty.textContent = records.length ? "Aucun rÃ©sultat pour cette recherche." : "Aucune fiche enregistrÃ©e pour le moment.";
+      empty.textContent = records.length ? "Aucun résultat pour cette recherche." : "Aucune fiche enregistrée pour le moment.";
       container.appendChild(empty); return;
     }
     filtered.forEach(record => container.appendChild(renderRecord(record)));
@@ -141,50 +154,37 @@ function stopCamera() {
 function cleanText(value) { return String(value || "").replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").trim(); }
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
 function predictionToText(prediction) {
-  // Accepte plusieurs formats de rÃ©sultat utilisÃ©s par les versions d'OCR.
   const parts = [];
   const seen = new Set();
-
   function collect(value, key = "") {
     if (value == null) return;
-
     if (typeof value === "string") {
       const text = cleanText(value);
       if (text && /text|transcription|content|rec_text/i.test(key)) parts.push(text);
       return;
     }
-
     if (typeof value !== "object" || seen.has(value)) return;
     seen.add(value);
-
     if (Array.isArray(value)) {
       value.forEach(item => collect(item, key));
       return;
     }
-
-    // Champs connus contenant le texte reconnu.
     for (const k of ["text", "rec_text", "rec_texts", "texts", "transcription", "content"]) {
       if (Object.prototype.hasOwnProperty.call(value, k)) {
         const v = value[k];
-        if (typeof v === "string") {
-          if (cleanText(v)) parts.push(cleanText(v));
-        } else {
-          collect(v, k);
-        }
+        if (typeof v === "string") { if (cleanText(v)) parts.push(cleanText(v)); }
+        else collect(v, k);
       }
     }
-
-    // CompatibilitÃ© avec les rÃ©sultats imbriquÃ©s (result, data, pages, items, etc.).
     for (const [k, v] of Object.entries(value)) {
       if (["text", "rec_text", "rec_texts", "texts", "transcription", "content"].includes(k)) continue;
       if (v && typeof v === "object") collect(v, k);
     }
   }
-
   collect(prediction);
   return unique(parts.map(cleanText)).join("\n");
 }
-// PrÃ©pare une copie plus lÃ©gÃ¨re pour lâOCR sans modifier la photo originale sauvegardÃ©e.
+// Prépare une copie plus légère pour l’OCR sans modifier la photo originale sauvegardée.
 function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -195,29 +195,24 @@ function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82) {
         canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
         canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
         const context = canvas.getContext("2d", { alpha: false });
-        if (!context) throw new Error("Impossible de prÃ©parer lâimage pour lâOCR.");
+        if (!context) throw new Error("Impossible de préparer l’image pour l’OCR.");
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(blob => {
           if (blob) resolve(blob);
-          else reject(new Error("Impossible de rÃ©duire la photo pour lâOCR."));
+          else reject(new Error("Impossible de réduire la photo pour l’OCR."));
         }, "image/jpeg", quality);
       } catch (error) { reject(error); }
     };
-    image.onerror = () => reject(new Error("La photo ne peut pas Ãªtre dÃ©codÃ©e par le navigateur."));
+    image.onerror = () => reject(new Error("La photo ne peut pas être décodée par le navigateur."));
     image.src = dataUrl;
   });
 }
-
 function extractFields(raw) {
   const lines = raw.split(/\r?\n/).map(cleanText).filter(Boolean);
   const all = lines.join(" ").toUpperCase();
   const compact = all.replace(/[^A-Z0-9]/g, "");
-
-  // Cherche la commande exacte mÃªme si l'OCR colle des chiffres avant (ex. 1626CR02342).
   const orderMatch = compact.match(/\d{2}CR\d{4,8}/);
   const order = orderMatch ? orderMatch[0] : "";
-
-  // ReconnaÃ®t les clients connus sans imposer un seul nom.
   const normalized = all.replace(/[^A-Z0-9]/g, "");
   let client = "";
   if (/FRO[I1L]D?MANTEAU/.test(normalized) || normalized.includes("FROIDMANTEAU")) {
@@ -225,137 +220,135 @@ function extractFields(raw) {
   } else if (normalized.includes("BELONCLECYR") || /BELONCLE.*CYR/.test(all)) {
     client = "BELONCLE CYR";
   }
-
-  // Le numÃ©ro de chÃ¢ssis est le code court isolÃ© sur sa propre ligne (002, 003, etc.).
   const chassis = lines.find(line => /^\d{3}$/.test(line)) || "";
-  const codes = unique([...all.matchAll(/\b[A-Z0-9]{8,14}\b/g)]
-    .map(m => m[0])
-    .filter(v => /\d/.test(v) && /[A-Z]/.test(v) && v !== order));
+  const codes = unique([...all.matchAll(/\b[A-Z0-9]{8,14}\b/g)].map(m => m[0]).filter(v => /\d/.test(v) && /[A-Z]/.test(v) && v !== order));
   return { lines, order, client, chassis, codes };
 }
-
-/* CORRECTION : lâimage dâorigine est conservÃ©e et rÃ©affichÃ©e aprÃ¨s lâOCR. */
+function applyExtractedFields(raw) {
+  const fields = extractFields(raw);
+  if (fields.order) $("orderNo").value = fields.order;
+  if (fields.client) $("clientName").value = fields.client;
+  if (fields.chassis) $("frameNo").value = fields.chassis;
+}
+// Correction du texte brut : les changements sont validés avant d’être conservés.
+function beginOcrEdit() {
+  if (isReading) return;
+  const visibleText = $("ocrResult").textContent.trim();
+  $("ocrEditor").value = visibleText === OCR_PLACEHOLDER ? "" : visibleText;
+  ocrEditOpen = true;
+  $("ocrResult").style.display = "none";
+  $("ocrEditor").style.display = "block";
+  $("editOcrBtn").style.display = "none";
+  $("saveOcrEditBtn").style.display = "";
+  $("cancelOcrEditBtn").style.display = "";
+  $("ocrEditor").focus();
+}
+function saveOcrEdit() {
+  if (!ocrEditOpen) return;
+  const corrected = $("ocrEditor").value.trim();
+  setOcrText(corrected);
+  closeOcrEditor();
+  if (corrected) applyExtractedFields(corrected);
+  status("scanStatus", "Texte brut corrigé. Les corrections seront enregistrées avec la fiche.");
+}
+function cancelOcrEdit() {
+  $("ocrEditor").value = "";
+  closeOcrEditor();
+}
 async function runOCR() {
   if (isReading) return;
-
   if (!currentPhoto) {
-    status("scanStatus", "Choisis dâabord une photo de lâÃ©tiquette.", true);
+    status("scanStatus", "Choisis d’abord une photo de l’étiquette.", true);
     return;
   }
-
   const savedPhoto = currentPhoto;
   const savedPhotoType = currentPhotoType;
-
   isReading = true;
   $("readLabelBtn").disabled = true;
-
   try {
     $("preview").src = savedPhoto;
     $("preview").style.display = "block";
-
-    status("scanStatus", "Chargement du moteur OCRâ¦");
-
+    status("scanStatus", "Chargement du moteur OCR…");
     if (!ocrInstance) {
       ocrInstance = await PaddleOCR.create({
         lang: "en",
         ocrVersion: "PP-OCRv5",
-        ortOptions: {
-          backend: "wasm",
-          wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/"
-        }
+        ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
       });
     }
-
-    status("scanStatus", "Analyse de la photo en coursâ¦");
-
-    status("scanStatus", "PrÃ©paration dâune copie lÃ©gÃ¨re de la photoâ¦");
-    $("ocrResult").textContent = "PrÃ©paration de la photo pour lâanalyseâ¦ lâoriginal est conservÃ©.";
+    status("scanStatus", "Analyse de la photo en cours…");
+    status("scanStatus", "Préparation d’une copie légère de la photo…");
+    setOcrText("Préparation de la photo pour l’analyse… l’original est conservé.");
     const blob = await makeOCRBlob(savedPhoto, 1500, 0.82);
-
-    status("scanStatus", "Analyse OCR en cours sur la copie allÃ©gÃ©eâ¦");
-    $("ocrResult").textContent = "Analyse en coursâ¦ la photo originale est conservÃ©e.";
+    status("scanStatus", "Analyse OCR en cours sur la copie allégée…");
+    setOcrText("Analyse en cours… la photo originale est conservée.");
     const results = await ocrInstance.predict(blob);
-    console.log("RÃ©sultat brut PaddleOCR :", results);
-
-    // RÃ©cupÃ¨re le texte depuis les Ã©lÃ©ments renvoyÃ©s par PaddleOCR.
+    console.log("Résultat brut PaddleOCR :", results);
     const raw = (Array.isArray(results) ? results : [results])
       .flatMap(result => (result?.items || []).map(item => item?.text || ""))
       .filter(Boolean)
       .join("\n");
-
-    currentOCRText = raw;
-    $("ocrResult").textContent = raw ||
-      "Aucun texte dÃ©tectÃ©. Essaie une photo plus nette, prise de face et bien Ã©clairÃ©e.";
-
-    const fields = extractFields(raw);
-    if (fields.order) $("orderNo").value = fields.order;
-    if (fields.client) $("clientName").value = fields.client;
-    if (fields.chassis) $("frameNo").value = fields.chassis;
-
-    status(
-      "scanStatus",
-      raw
-        ? "Lecture terminÃ©e. VÃ©rifie les champs avant dâenregistrer."
-        : "Aucun texte rÃ©cupÃ©rÃ©. Tu peux rÃ©essayer.",
-      !raw
-    );
-
+    setOcrText(raw || "Aucun texte détecté. Essaie une photo plus nette, prise de face et bien éclairée.");
+    if (raw) applyExtractedFields(raw);
+    status("scanStatus", raw ? "Lecture terminée. Vérifie les champs avant d’enregistrer." : "Aucun texte récupéré. Tu peux réessayer.", !raw);
   } catch (e) {
     console.error("Erreur PaddleOCR", e);
     const errorMessage = e?.message || String(e);
-    $("ocrResult").textContent = "Erreur pendant la lecture : " + errorMessage;
+    setOcrText("Erreur pendant la lecture : " + errorMessage);
     status("scanStatus", "Erreur OCR : " + errorMessage, true);
-
   } finally {
     currentPhoto = savedPhoto;
     currentPhotoType = savedPhotoType;
-
     if (savedPhoto) {
       $("preview").setAttribute("src", savedPhoto);
       $("preview").style.display = "block";
     }
-
     isReading = false;
     $("readLabelBtn").disabled = false;
   }
 }
 
+$("editOcrBtn").addEventListener("click", beginOcrEdit);
+$("saveOcrEditBtn").addEventListener("click", saveOcrEdit);
+$("cancelOcrEditBtn").addEventListener("click", cancelOcrEdit);
 $("cameraInput").addEventListener("change", async e => {
   const file = e.target.files?.[0]; if (!file) return;
   try {
     setPhoto(await dataURL(file), file.type);
-    currentOCRText = "";
+    setOcrText("");
     $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = "";
-    $("ocrResult").textContent = "Photo chargÃ©e. Appuie sur Â« Lire le texte de la photo Â».";
-    status("scanStatus", "Photo chargÃ©e. Appuie sur Â« Lire le texte de la photo Â» pour analyser.");
+    closeOcrEditor();
+    setOcrText("Photo chargée. Appuie sur « Lire le texte de la photo ».");
+    status("scanStatus", "Photo chargée. Appuie sur « Lire le texte de la photo » pour analyser.");
   } catch (err) { status("scanStatus", "Impossible de lire la photo : " + err.message, true); }
 });
 $("clearPhotoBtn").addEventListener("click", () => {
-  setPhoto(null); $("cameraInput").value = ""; $("ocrResult").textContent = "Le texte reconnu apparaÃ®tra ici.";
-  status("scanStatus", "Photo retirÃ©e de la fiche en cours.");
+  setPhoto(null); $("cameraInput").value = ""; setOcrText(""); closeOcrEditor();
+  status("scanStatus", "Photo retirée de la fiche en cours.");
 });
 $("readLabelBtn").addEventListener("click", runOCR);
 $("copyOcrBtn").addEventListener("click", async () => {
-  const text = $("ocrResult").textContent.trim();
-  if (!text || text === "Le texte reconnu apparaÃ®tra ici.") { status("scanStatus", "Aucun texte Ã  copier.", true); return; }
+  const text = (ocrEditOpen ? $("ocrEditor").value : $("ocrResult").textContent).trim();
+  if (!text || text === OCR_PLACEHOLDER) { status("scanStatus", "Aucun texte à copier.", true); return; }
   try {
     await navigator.clipboard.writeText(text);
-    status("scanStatus", "Texte brut copiÃ©. Tu peux le coller oÃ¹ tu veux.");
+    status("scanStatus", "Texte brut copié. Tu peux le coller où tu veux.");
   } catch {
-    const range = document.createRange(); range.selectNodeContents($("ocrResult"));
+    const range = document.createRange();
+    range.selectNodeContents(ocrEditOpen ? $("ocrEditor") : $("ocrResult"));
     const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
-    status("scanStatus", "SÃ©lection du texte effectuÃ©e. Appuie longuement puis choisis Copier.");
+    status("scanStatus", "Sélection du texte effectuée. Appuie longuement puis choisis Copier.");
   }
 });
 $("barcodeBtn").addEventListener("click", async () => {
-  if (!currentPhoto) { status("scanStatus", "Choisis dâabord une photo.", true); return; }
+  if (!currentPhoto) { status("scanStatus", "Choisis d’abord une photo.", true); return; }
   try {
     const mod = await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");
     const reader = new mod.BrowserMultiFormatReader();
     const result = await reader.decodeFromImageUrl(currentPhoto);
     $("frameNo").value = result.getText();
-    status("scanStatus", "Code-barres lu : " + result.getText() + ". VÃ©rifie-le avant dâenregistrer.");
-  } catch (e) { status("scanStatus", "Code-barres non dÃ©tectÃ© sur cette photo. Tu peux utiliser la lecture du texte.", true); }
+    status("scanStatus", "Code-barres lu : " + result.getText() + ". Vérifie-le avant d’enregistrer.");
+  } catch (e) { status("scanStatus", "Code-barres non détecté sur cette photo. Tu peux utiliser la lecture du texte.", true); }
 });
 $("startScanBtn").addEventListener("click", async () => {
   stopCamera();
@@ -363,48 +356,58 @@ $("startScanBtn").addEventListener("click", async () => {
     liveStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
     $("liveVideo").srcObject = liveStream; $("liveVideo").style.display = "block"; await $("liveVideo").play();
     $("captureBtn").disabled = false; $("stopScanBtn").disabled = false;
-    status("scanStatus", "CamÃ©ra ouverte. Capture lâÃ©tiquette pour la lire.");
-  } catch (e) { stopCamera(); status("scanStatus", "Impossible dâouvrir la camÃ©ra. VÃ©rifie lâautorisation et utilise le site en HTTPS.", true); }
+    status("scanStatus", "Caméra ouverte. Capture l’étiquette pour la lire.");
+  } catch (e) { stopCamera(); status("scanStatus", "Impossible d’ouvrir la caméra. Vérifie l’autorisation et utilise le site en HTTPS.", true); }
 });
 $("captureBtn").addEventListener("click", async () => {
   const video = $("liveVideo");
-  if (!video.videoWidth) { status("scanStatus", "Attends que lâimage de la camÃ©ra apparaisse.", true); return; }
+  if (!video.videoWidth) { status("scanStatus", "Attends que l’image de la caméra apparaisse.", true); return; }
   const canvas = document.createElement("canvas"); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
   setPhoto(canvas.toDataURL("image/jpeg", .92), "image/jpeg"); stopCamera();
-  $("ocrResult").textContent = "Photo capturÃ©e. Appuie sur Â« Lire le texte de la photo Â».";
-  status("scanStatus", "Photo capturÃ©e. Appuie sur Â« Lire le texte de la photo Â» pour lancer lâanalyse.");
+  setOcrText("Photo capturée. Appuie sur « Lire le texte de la photo ».");
+  status("scanStatus", "Photo capturée. Appuie sur « Lire le texte de la photo » pour lancer l’analyse.");
 });
-$("stopScanBtn").addEventListener("click", () => { stopCamera(); status("scanStatus", "CamÃ©ra fermÃ©e."); });
+$("stopScanBtn").addEventListener("click", () => { stopCamera(); status("scanStatus", "Caméra fermée."); });
 $("saveBtn").addEventListener("click", async () => {
+  if (ocrEditOpen) saveOcrEdit();
   const orderNo = $("orderNo").value.trim(), frameNo = $("frameNo").value.trim();
-  if (!orderNo) { status("formStatus", "Le numÃ©ro de commande est obligatoire.", true); $("orderNo").focus(); return; }
-  if (!frameNo) { status("formStatus", "Le numÃ©ro du chÃ¢ssis est obligatoire.", true); $("frameNo").focus(); return; }
+  if (!orderNo) { status("formStatus", "Le numéro de commande est obligatoire.", true); $("orderNo").focus(); return; }
+  if (!frameNo) { status("formStatus", "Le numéro du châssis est obligatoire.", true); $("frameNo").focus(); return; }
   const now = Date.now();
   try {
-    const record = { clientName: $("clientName").value.trim(), orderNo, frameNo, operations: getOps(), notes: $("notes").value.trim(), ocrText: currentOCRText || $("ocrResult").textContent.trim(), photo: currentPhoto, photoType: currentPhotoType, updatedAt: now };
+    const displayedRaw = $("ocrResult").textContent.trim();
+    const isInstruction = displayedRaw === OCR_PLACEHOLDER
+      || displayedRaw.startsWith("Photo chargée.")
+      || displayedRaw.startsWith("Photo capturée.")
+      || displayedRaw.startsWith("Préparation de la photo")
+      || displayedRaw.startsWith("Analyse en cours")
+      || displayedRaw.startsWith("Erreur pendant la lecture :")
+      || displayedRaw.startsWith("Aucun texte détecté.");
+    const ocrText = isInstruction ? "" : displayedRaw;
+    const record = { clientName: $("clientName").value.trim(), orderNo, frameNo, operations: getOps(), notes: $("notes").value.trim(), ocrText, photo: currentPhoto, photoType: currentPhotoType, updatedAt: now };
     if (editingId) { record.id = editingId; const old = await getRecord(editingId); record.createdAt = old?.createdAt || now; } else record.createdAt = now;
     editingId = await saveRecord(record);
-    $("saveBtn").textContent = "ð¾ Mettre Ã  jour la fiche";
-    status("formStatus", "Fiche enregistrÃ©e avec succÃ¨s, photo comprise.");
+    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
     await refreshRecords();
-  } catch (e) { status("formStatus", "Erreur dâenregistrement : " + e.message, true); }
+  } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
 });
-$("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et prÃ©parer une nouvelle fiche ?")) resetForm(); });
+$("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
 $("searchBox").addEventListener("input", refreshRecords);
 $("exportBtn").addEventListener("click", async () => {
   try {
     const records = await allRecords();
-    const blob = new Blob([JSON.stringify({ app: "Scan ChÃ¢ssis", version: 1, exportedAt: new Date().toISOString(), records })], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records })], { type: "application/json" });
     const url = URL.createObjectURL(blob), a = document.createElement("a");
     a.href = url; a.download = `scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    status("backupStatus", `${records.length} fiche(s) exportÃ©e(s), photos incluses.`);
-  } catch (e) { status("backupStatus", "Ãchec de lâexport : " + e.message, true); }
+    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus.`);
+  } catch (e) { status("backupStatus", "Échec de l’export : " + e.message, true); }
 });
 $("importInput").addEventListener("change", async e => {
   const file = e.target.files?.[0]; if (!file) return;
-  if (!confirm("Importer cette sauvegarde ? Les fiches existantes seront conservÃ©es.")) { e.target.value = ""; return; }
+  if (!confirm("Importer cette sauvegarde ? Les fiches existantes seront conservées.")) { e.target.value = ""; return; }
   try {
     const parsed = JSON.parse(await file.text());
     if (!Array.isArray(parsed.records)) throw new Error("Format de sauvegarde invalide.");
@@ -416,12 +419,12 @@ $("importInput").addEventListener("change", async e => {
       await saveRecord({ clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo), operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""), ocrText: String(item.ocrText || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg", createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now() });
       added++;
     }
-    await refreshRecords(); status("backupStatus", `Import terminÃ© : ${added} ajoutÃ©e(s), ${skipped} ignorÃ©e(s).`);
+    await refreshRecords(); status("backupStatus", `Import terminé : ${added} ajoutée(s), ${skipped} ignorée(s).`);
   } catch (err) { status("backupStatus", "Import impossible : " + err.message, true); }
   finally { e.target.value = ""; }
 });
 (async () => {
   try { await openDB(); await refreshRecords(); }
-  catch (e) { status("formStatus", "Impossible dâouvrir la base locale : " + e.message, true); }
+  catch (e) { status("formStatus", "Impossible d’ouvrir la base locale : " + e.message, true); }
 })();
 })();
