@@ -139,16 +139,48 @@ function stopCamera() {
 function cleanText(value) { return String(value || "").replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").trim(); }
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
 function predictionToText(prediction) {
+  // Accepte plusieurs formats de rÃ©sultat utilisÃ©s par les versions d'OCR.
   const parts = [];
-  function collect(value) {
-    if (!value) return;
-    if (typeof value === "string") { parts.push(value); return; }
-    if (Array.isArray(value)) { value.forEach(collect); return; }
-    if (typeof value.text === "string" && value.text.trim()) parts.push(value.text);
-    if (Array.isArray(value.items)) value.items.forEach(collect);
+  const seen = new Set();
+
+  function collect(value, key = "") {
+    if (value == null) return;
+
+    if (typeof value === "string") {
+      const text = cleanText(value);
+      if (text && /text|transcription|content|rec_text/i.test(key)) parts.push(text);
+      return;
+    }
+
+    if (typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      value.forEach(item => collect(item, key));
+      return;
+    }
+
+    // Champs connus contenant le texte reconnu.
+    for (const k of ["text", "rec_text", "rec_texts", "texts", "transcription", "content"]) {
+      if (Object.prototype.hasOwnProperty.call(value, k)) {
+        const v = value[k];
+        if (typeof v === "string") {
+          if (cleanText(v)) parts.push(cleanText(v));
+        } else {
+          collect(v, k);
+        }
+      }
+    }
+
+    // CompatibilitÃ© avec les rÃ©sultats imbriquÃ©s (result, data, pages, items, etc.).
+    for (const [k, v] of Object.entries(value)) {
+      if (["text", "rec_text", "rec_texts", "texts", "transcription", "content"].includes(k)) continue;
+      if (v && typeof v === "object") collect(v, k);
+    }
   }
+
   collect(prediction);
-  return unique(parts.map(cleanText)).join("\n");
+  return unique(parts.map(cleanText)).join("\\n");
 }
 function extractFields(raw) {
   const lines = raw.split(/\r?\n/).map(cleanText).filter(Boolean);
@@ -206,6 +238,7 @@ async function runOCR() {
 
     const blob = await response.blob();
     const prediction = await ocrInstance.predict(blob);
+    console.log("RÃ©sultat brut PaddleOCR :", prediction);
     const raw = predictionToText(prediction);
 
     $("ocrResult").textContent = raw ||
@@ -226,15 +259,18 @@ async function runOCR() {
 
   } catch (e) {
     console.error("Erreur PaddleOCR", e);
-    $("ocrResult").textContent = "La lecture a Ã©chouÃ©. Tu peux rÃ©essayer sans reprendre la photo.";
-    status("scanStatus", "Erreur OCR : " + (e?.message || String(e)), true);
+    const errorMessage = e?.message || String(e);
+    $("ocrResult").textContent = "Erreur pendant la lecture : " + errorMessage;
+    status("scanStatus", "Erreur OCR : " + errorMessage, true);
 
   } finally {
     currentPhoto = savedPhoto;
     currentPhotoType = savedPhotoType;
 
-    $("preview").src = savedPhoto;
-    $("preview").style.display = "block";
+    if (savedPhoto) {
+      $("preview").setAttribute("src", savedPhoto);
+      $("preview").style.display = "block";
+    }
 
     isReading = false;
     $("readLabelBtn").disabled = false;
