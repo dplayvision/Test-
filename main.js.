@@ -1,0 +1,83 @@
+import \{ PaddleOCR \} from “@paddleocr/paddleocr\-js”;
+
+let ocrInstance = null;
+
+const photoInput = document\.getElementById&#40;“photo”&#41;;
+const preview = document\.getElementById&#40;“preview”&#41;;
+const runButton = document\.getElementById&#40;“run”&#41;;
+const status = document\.getElementById&#40;“status”&#41;;
+const result = document\.getElementById&#40;“result”&#41;;
+
+function showStatus&#40;message&#41; \{
+if &#40;status&#41; status\.textContent = message;
+\}
+
+if &#40;photoInput&#41; \{
+photoInput\.addEventListener&#40;“change”, &#40;&#41; =\> \{
+const file = photoInput\.files?\.&#91;0&#93;;
+if &#40;\!file&#41; return;
+
+```
+if (preview) {
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = "block";
+}
+
+if (result) result.textContent = "";
+showStatus("Photo chargée. Tu peux lancer la reconnaissance.");
+```
+
+\}&#41;;
+\}
+
+if &#40;runButton&#41; \{
+runButton\.addEventListener&#40;“click”, async &#40;&#41; =\> \{
+const file = photoInput?\.files?\.&#91;0&#93;;
+
+```
+if (!file) {
+  showStatus("Choisis d'abord une photo.");
+  return;
+}
+
+runButton.disabled = true;
+
+try {
+  showStatus("Chargement du moteur OCR…");
+
+  if (!ocrInstance) {
+    ocrInstance = await PaddleOCR.create({
+      lang: "en",
+      ocrVersion: "PP-OCRv5",
+      ortOptions: {
+        backend: "wasm",
+        wasmPaths:
+          "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/"
+      }
+    });
+  }
+
+  showStatus("Analyse de la photo en cours…");
+
+  const [ocrResult] = await ocrInstance.predict(file);
+
+  const text = Array.isArray(ocrResult?.text)
+    ? ocrResult.text.join("\n")
+    : typeof ocrResult?.text === "string"
+      ? ocrResult.text
+      : JSON.stringify(ocrResult, null, 2);
+
+  if (result) result.textContent = text;
+  showStatus("Analyse terminée.");
+} catch (error) {
+  console.error(error);
+  showStatus("Erreur OCR : " + (error?.message || String(error)));
+} finally {
+  runButton.disabled = false;
+}
+```
+
+\}&#41;;
+\}
+
+showStatus&#40;“Prêt\. Choisis une photo de châssis\.”&#41;;
