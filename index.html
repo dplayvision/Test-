@@ -25,7 +25,7 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 #cropModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.88);align-items:center;justify-content:center;padding:16px}
 .crop-panel{width:min(100%,760px);max-height:95dvh;overflow:auto;background:#fff;border-radius:18px;padding:14px}
 #cropCanvas{display:block;max-width:100%;height:auto;margin:12px auto;border-radius:8px;touch-action:none;cursor:crosshair;background:#e2e8f0}
-.crop-title{font-size:19px;font-weight:800;margin:2px 0 6px}.crop-help{font-size:13px;color:#65718a;line-height:1.4}
+.crop-title{font-size:19px;font-weight:800;margin:2px 0 6px}.crop-help{font-size:13px;color:#65718a;line-height:1.4}.crop-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.crop-tools button{flex:1;min-width:110px}
 </style>
 </head>
 <body>
@@ -63,9 +63,10 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <div id="cropModal" role="dialog" aria-modal="true" aria-label="Cadrer l’étiquette">
   <div class="crop-panel">
     <div class="crop-title">✂️ Cadrer l’étiquette</div>
-    <p class="crop-help">Fais glisser ton doigt sur la photo pour tracer un rectangle autour de l’étiquette, puis valide.</p>
+    <p class="crop-help">Essaie le cadrage automatique. Si le cadre n’est pas parfait, trace-le au doigt. Utilise le zoom pour ajuster.</p>
+    <div class="crop-tools"><button type="button" class="secondary" id="autoCropBtn">✨ Cadrage automatique</button><button type="button" class="neutral" id="zoomOutBtn">− Zoom</button><button type="button" class="neutral" id="zoomInBtn">+ Zoom</button></div>
     <canvas id="cropCanvas"></canvas>
-    <div class="actions"><button type="button" class="neutral" id="cropCancelBtn">Annuler</button><button type="button" class="primary" id="cropApplyBtn">Appliquer le cadrage</button></div>
+    <div class="actions"><button type="button" class="neutral" id="cropCancelBtn">Annuler</button><button type="button" class="primary" id="cropApplyBtn">Valider le cadrage</button></div>
   </div>
 </div>
 <footer>Les fiches sont stockées sur cet appareil. Export régulier conseillé : le navigateur peut effacer ses données.</footer>
