@@ -7,7 +7,7 @@ const DB_NAME = "scanChassisDB", DB_VERSION = 1, STORE = "fiches";
 const OPS = ["Empilage","Double empilage","Retour","Double retour","Soudage / Nettoyage ouvrants","Soudage / Nettoyage dormants"];
 const OCR_PLACEHOLDER = "Le texte reconnu apparaîtra ici.";
 let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg", currentOCRText = "";
-let previewUrl = null, liveStream = null, isReading = false, editingId = null, ocrEditOpen = false;
+let previewUrl = null, liveStream = null, isReading = false, editingId = null, ocrEditOpen = false, photoRotation = 0;
 
 const $ = id => document.getElementById(id);
 const status = (id, message, error = false) => {
@@ -74,6 +74,8 @@ function dataURL(file) {
 function setPhoto(data, type = "image/jpeg") {
   currentPhoto = data;
   currentPhotoType = type || "image/jpeg";
+  photoRotation = 0;
+  $("preview").style.setProperty("--preview-rotation", "0deg");
   if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
   if (data) {
     $("preview").src = data;
@@ -185,18 +187,24 @@ function predictionToText(prediction) {
   return unique(parts.map(cleanText)).join("\n");
 }
 // Prépare une copie plus légère pour l’OCR sans modifier la photo originale sauvegardée.
-function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82) {
+function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82, rotationDegrees = 0) {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => {
       try {
         const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+        const sourceWidth = Math.max(1, Math.round(image.naturalWidth * scale));
+        const sourceHeight = Math.max(1, Math.round(image.naturalHeight * scale));
+        const normalizedRotation = ((rotationDegrees % 360) + 360) % 360;
+        const sideways = normalizedRotation === 90 || normalizedRotation === 270;
         const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.width = sideways ? sourceHeight : sourceWidth;
+        canvas.height = sideways ? sourceWidth : sourceHeight;
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) throw new Error("Impossible de préparer l’image pour l’OCR.");
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        context.translate(canvas.width / 2, canvas.height / 2);
+        context.rotate(normalizedRotation * Math.PI / 180);
+        context.drawImage(image, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight);
         canvas.toBlob(blob => {
           if (blob) resolve(blob);
           else reject(new Error("Impossible de réduire la photo pour l’OCR."));
@@ -279,7 +287,7 @@ async function runOCR() {
     status("scanStatus", "Analyse de la photo en cours…");
     status("scanStatus", "Préparation d’une copie légère de la photo…");
     setOcrText("Préparation de la photo pour l’analyse… l’original est conservé.");
-    const blob = await makeOCRBlob(savedPhoto, 1500, 0.82);
+    const blob = await makeOCRBlob(savedPhoto, 1500, 0.82, photoRotation);
     status("scanStatus", "Analyse OCR en cours sur la copie allégée…");
     setOcrText("Analyse en cours… la photo originale est conservée.");
     const results = await ocrInstance.predict(blob);
@@ -326,6 +334,17 @@ $("clearPhotoBtn").addEventListener("click", () => {
   setPhoto(null); $("cameraInput").value = ""; setOcrText(""); closeOcrEditor();
   status("scanStatus", "Photo retirée de la fiche en cours.");
 });
+function rotatePreview(degrees) {
+  if (!currentPhoto) {
+    status("scanStatus", "Choisis ou capture d’abord une photo.", true);
+    return;
+  }
+  photoRotation = (photoRotation + degrees + 360) % 360;
+  $("preview").style.setProperty("--preview-rotation", `${photoRotation}deg`);
+  status("scanStatus", `Orientation de lecture : ${photoRotation}°. La photo originale reste inchangée.`);
+}
+$("rotateLeftBtn").addEventListener("click", () => rotatePreview(-90));
+$("rotateRightBtn").addEventListener("click", () => rotatePreview(90));
 $("readLabelBtn").addEventListener("click", runOCR);
 $("copyOcrBtn").addEventListener("click", async () => {
   const text = (ocrEditOpen ? $("ocrEditor").value : $("ocrResult").textContent).trim();
