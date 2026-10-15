@@ -1,4 +1,4 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -15,7 +15,7 @@ input[type=text],input[type=search],textarea{width:100%;border:1px solid #cbd5e1
 button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:750;cursor:pointer;min-height:44px}.primary{background:var(--blue);color:#fff}.primary:active{background:var(--blue2)}.secondary{background:#e8efff;color:#1e40af}.danger{background:#fee2e2;color:#991b1b}.neutral{background:#edf1f7;color:#243047}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{flex:1}.hint{color:var(--muted);font-size:12px;line-height:1.45;margin:7px 0 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .op{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfcff;font-weight:650;font-size:14px;line-height:1.3}.op input{width:20px;height:20px;flex-shrink:0;accent-color:var(--blue);margin:0}
-#preview{width:100%;max-height:320px;min-height:80px;object-fit:contain;background:#f1f5f9;border-radius:12px;margin-top:10px;display:block}#preview[src=""]{display:none}#cameraInput{display:none}#liveVideo{transform:translateZ(0)}button:disabled{opacity:.45;cursor:not-allowed}.badge{display:inline-block;border-radius:999px;background:#e8efff;color:#1d4ed8;padding:4px 9px;font-size:12px;font-weight:800}
+#preview{width:100%;max-height:320px;min-height:80px;object-fit:contain;background:#f1f5f9;border-radius:12px;margin-top:10px;display:block;transform:rotate(var(--preview-rotation, 0deg))}#preview[src=""]{display:none}#cameraInput{display:none}#liveVideo{transform:translateZ(0)}button:disabled{opacity:.45;cursor:not-allowed}.badge{display:inline-block;border-radius:999px;background:#e8efff;color:#1d4ed8;padding:4px 9px;font-size:12px;font-weight:800}
 .record{border:1px solid var(--line);border-radius:13px;padding:12px;margin-top:10px}.record-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.record h3{margin:0 0 5px;font-size:16px;overflow-wrap:anywhere}.record p{margin:4px 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}.record img{width:100%;max-height:220px;object-fit:contain;border-radius:9px;background:#f1f5f9;margin-top:10px}.record .actions button{font-size:13px;padding:9px}.empty{text-align:center;padding:24px 8px;color:var(--muted)}.status{margin-top:10px;font-size:13px;font-weight:700}footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 25px}
 @media(max-width:420px){.grid{grid-template-columns:1fr}header h1{font-size:24px}.card{padding:14px}}
 .field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap}
@@ -34,6 +34,11 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <p class="hint">Le scanner en direct ouvre la caméra. Tu peux capturer la photo originale puis lancer la lecture du texte. Autorise l’accès à la caméra si demandé.</p>
 <label class="file-button secondary" for="cameraInput" style="display:inline-flex;align-items:center;justify-content:center">🖼️ Choisir dans ma photothèque</label><input id="cameraInput" type="file" accept="image/*">
 <img id="preview" alt="Aperçu de l’étiquette">
+<div class="actions" style="margin-top:8px">
+  <button type="button" class="secondary" id="rotateLeftBtn">↶ Tourner à gauche</button>
+  <button type="button" class="secondary" id="rotateRightBtn">↷ Tourner à droite</button>
+</div>
+<p class="hint">Tourne la photo par quarts de tour avant de lancer la lecture. La photo originale enregistrée reste inchangée.</p>
 <div class="actions"><button type="button" class="primary" id="readLabelBtn">🔎 Lire le texte de la photo</button><button type="button" class="secondary" id="barcodeBtn">▥ Lire le code-barres de la photo</button><button type="button" class="neutral" id="clearPhotoBtn">Retirer la photo</button></div>
 <div class="status" id="scanStatus" aria-live="polite"></div>
 <div class="field">
