@@ -118,7 +118,7 @@ function loadForm(record) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function escapeHTML(value) {
-  return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+  return String(value ?? "").replace(/[\x26\x3C>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function renderRecord(record) {
   const article = document.createElement("article"); article.className = "record";
