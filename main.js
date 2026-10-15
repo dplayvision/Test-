@@ -118,7 +118,7 @@ function loadForm(record) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function escapeHTML(value) {
-  return String(value ?? "").replace(/[\x26\x3C>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function renderRecord(record) {
   const article = document.createElement("article"); article.className = "record";
@@ -231,56 +231,52 @@ function extractFields(raw) {
   const orderMatch = compact.match(/\d{2}CR\d{4,8}/);
   const order = orderMatch ? orderMatch[0] : "";
 
-  // Nom du client.
+  // Nom du client : approche générique pour les différentes étiquettes.
+  // Sur les étiquettes WAKO, le nom est souvent suivi d'un identifiant
+  // client de 4 à 6 chiffres (ex. DEBOUGNOUX_S 19433).
   let client = "";
   const knownClients = [
     { pattern: /FRO[I1L]D?MANTEAU/, name: "FROIDMANTEAU" },
     { pattern: /BELONCLE.*CYR/, name: "BELONCLE CYR" }
   ];
-
   for (const item of knownClients) {
-    if (item.pattern.test(all.replace(/[^A-Z0-9 ]/g, " "))) {
-      client = item.name;
-      break;
-    }
+    if (item.pattern.test(all.replace(/[^A-Z0-9 ]/g, " "))) { client = item.name; break; }
   }
-
-  // Étiquette WAKO : extrait HARTMAN_CELE depuis HARTMAN_CELE·19433.
   if (!client) {
     const customerLine = lines.find(line =>
-      /HARTMAN/i.test(line) && /\d{3,}/.test(line)
+      /[A-ZÀ-Ü_ -]{4,}/i.test(line) && /\b\d{4,6}\b/.test(line) &&
+      !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
+      !/815[BSE]?\d{5,}/i.test(line) &&
+      !/CHASSIS|GAS1|CAS1|ACS1|WAKO/i.test(line)
     );
-
     if (customerLine) {
       client = customerLine
         .replace(/[·•|]/g, " ")
-        .replace(/\s+\d{3,}.*$/, "")
+        .replace(/\b\d{4,6}\b.*$/, "")
+        .replace(/\[[^\]]*\]/g, " ")
         .replace(/[_-]+/g, " ")
+        .replace(/\s+/g, " ")
         .trim();
+      if (/^\d|^CHASSIS$/i.test(client) || client.length < 3) client = "";
     }
   }
 
-  // Numéro de châssis : référence complète ACS1-S P002,
-  // ou ACS1-S 002 lorsque le P n'est pas présent.
+  // Châssis : GAS1 006 / CAS1 006 sur les étiquettes récentes,
+  // tout en conservant le format historique ACS1-S P002 ou ACS1-S 002.
   let chassis = "";
-  for (const line of lines) {
-    const normalizedLine = line.toUpperCase().replace(/[–—]/g, "-");
-    const match = normalizedLine.match(/\bACS1\s*-\s*S\s+(P\s*)?\d{3,6}\b/i);
-    if (match) {
-      const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
-      const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
-      chassis = "ACS1-S " + numberPart;
-      break;
-    }
-  }
+  const gasMatch = all.match(/\b(GA|CA)S1\s*[-_ ]*\s*(\d{3})\b/i);
+  if (gasMatch) chassis = "GAS1 " + gasMatch[2];
 
-  // Tolérance si l'OCR a retiré l'espace après ACS1-S.
   if (!chassis) {
-    const match = all.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
-    if (match) {
-      const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
-      const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
-      chassis = "ACS1-S " + numberPart;
+    for (const line of lines) {
+      const normalizedLine = line.toUpperCase().replace(/[–—]/g, "-");
+      const match = normalizedLine.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
+      if (match) {
+        const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
+        const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
+        chassis = "ACS1-S " + numberPart;
+        break;
+      }
     }
   }
 
