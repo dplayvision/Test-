@@ -215,21 +215,60 @@ function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82, rotationDegrees = 
     image.src = dataUrl;
   });
 }
+
+// CORRECTION WAKO : extraction des champs depuis le texte OCR.
 function extractFields(raw) {
-  const lines = raw.split(/\r?\n/).map(cleanText).filter(Boolean);
+  const lines = String(raw || "")
+    .split(/\r?\n/)
+    .map(cleanText)
+    .filter(Boolean);
+
   const all = lines.join(" ").toUpperCase();
   const compact = all.replace(/[^A-Z0-9]/g, "");
   const orderMatch = compact.match(/\d{2}CR\d{4,8}/);
   const order = orderMatch ? orderMatch[0] : "";
-  const normalized = all.replace(/[^A-Z0-9]/g, "");
+
   let client = "";
-  if (/FRO[I1L]D?MANTEAU/.test(normalized) || normalized.includes("FROIDMANTEAU")) {
-    client = "FROIDMANTEAU";
-  } else if (normalized.includes("BELONCLECYR") || /BELONCLE.*CYR/.test(all)) {
-    client = "BELONCLE CYR";
+  const knownClients = [
+    { pattern: /FRO[I1L]D?MANTEAU/, name: "FROIDMANTEAU" },
+    { pattern: /BELONCLE.*CYR/, name: "BELONCLE CYR" }
+  ];
+
+  for (const item of knownClients) {
+    if (item.pattern.test(all.replace(/[^A-Z0-9 ]/g, " "))) {
+      client = item.name;
+      break;
+    }
   }
-  const chassis = lines.find(line => /^\d{3}$/.test(line)) || "";
-  const codes = unique([...all.matchAll(/\b[A-Z0-9]{8,14}\b/g)].map(m => m[0]).filter(v => /\d/.test(v) && /[A-Z]/.test(v) && v !== order));
+
+  if (!client) {
+    const customerLine = lines.find(line =>
+      /HARTMAN/i.test(line) && /\d{3,}/.test(line)
+    );
+    if (customerLine) {
+      client = customerLine
+        .replace(/[·•|]/g, " ")
+        .replace(/\s+\d{3,}.*$/, "")
+        .replace(/[_-]+/g, " ")
+        .trim();
+    }
+  }
+
+  const codes = unique(
+    lines.flatMap(line =>
+      line.toUpperCase().match(/[A-Z0-9]+(?:[-_][A-Z0-9]+)*/g) || []
+    ).map(value => value.replace(/[^A-Z0-9]/g, ""))
+      .filter(value =>
+        value.length >= 8 &&
+        value.length <= 14 &&
+        /\d/.test(value) &&
+        /[A-Z]/.test(value) &&
+        value !== order
+      )
+  );
+
+  // Candidat alphanumérique long ; confirmer le format officiel WAKO.
+  const chassis = codes[0] || "";
   return { lines, order, client, chassis, codes };
 }
 function applyExtractedFields(raw) {
@@ -237,7 +276,9 @@ function applyExtractedFields(raw) {
   if (fields.order) $("orderNo").value = fields.order;
   if (fields.client) $("clientName").value = fields.client;
   if (fields.chassis) $("frameNo").value = fields.chassis;
+  console.log("Champs extraits de l'étiquette :", fields);
 }
+
 // Correction du texte brut : les changements sont validés avant d’être conservés.
 function beginOcrEdit() {
   if (isReading) return;
