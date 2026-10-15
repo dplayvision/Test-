@@ -21,8 +21,11 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 .field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap}
 #ocrResult{font-weight:500;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 #ocrEditor{display:none;width:100%;min-height:150px;margin-top:10px;white-space:pre-wrap;resize:vertical}
-.ocr-actions{margin-top:10px}
-.ocr-actions button{flex:1}
+.ocr-actions{margin-top:10px}.ocr-actions button{flex:1}
+#cropModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.88);align-items:center;justify-content:center;padding:16px}
+.crop-panel{width:min(100%,760px);max-height:95dvh;overflow:auto;background:#fff;border-radius:18px;padding:14px}
+#cropCanvas{display:block;max-width:100%;height:auto;margin:12px auto;border-radius:8px;touch-action:none;cursor:crosshair;background:#e2e8f0}
+.crop-title{font-size:19px;font-weight:800;margin:2px 0 6px}.crop-help{font-size:13px;color:#65718a;line-height:1.4}
 </style>
 </head>
 <body>
@@ -39,20 +42,16 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
   <button type="button" class="secondary" id="rotateRightBtn">↷ Tourner à droite</button>
 </div>
 <p class="hint">Tourne la photo par quarts de tour avant de lancer la lecture. La photo originale enregistrée reste inchangée.</p>
+<div class="actions">
+  <button type="button" class="secondary" id="cropBtn">✂️ Cadrer l’étiquette</button>
+</div>
+<p class="hint">Trace un cadre autour de l’étiquette. Le recadrage sert à la lecture OCR ; la photo originale reste enregistrée dans la fiche.</p>
 <div class="actions"><button type="button" class="primary" id="readLabelBtn">🔎 Lire le texte de la photo</button><button type="button" class="secondary" id="barcodeBtn">▥ Lire le code-barres de la photo</button><button type="button" class="neutral" id="clearPhotoBtn">Retirer la photo</button></div>
 <div class="status" id="scanStatus" aria-live="polite"></div>
-<div class="field">
-  <strong>Texte brut reconnu :</strong>
-  <div id="ocrResult">Le texte reconnu apparaîtra ici.</div>
-  <textarea id="ocrEditor" rows="7" aria-label="Modifier le texte brut reconnu"></textarea>
-  <div class="actions ocr-actions">
-    <button type="button" class="secondary" id="editOcrBtn">✏️ Modifier</button>
-    <button type="button" class="primary" id="saveOcrEditBtn" style="display:none">💾 Valider</button>
-    <button type="button" class="neutral" id="cancelOcrEditBtn" style="display:none">Annuler</button>
-    <button type="button" class="secondary" id="copyOcrBtn">📋 Copier le texte brut</button>
-  </div>
-  <p class="hint">Tu peux corriger le texte avant d’enregistrer. Les corrections seront conservées dans la fiche.</p>
-</div>
+<div class="field"><strong>Texte brut reconnu :</strong><div id="ocrResult">Le texte reconnu apparaîtra ici.</div>
+<textarea id="ocrEditor" rows="7" aria-label="Modifier le texte brut reconnu"></textarea>
+<div class="actions ocr-actions"><button type="button" class="secondary" id="editOcrBtn">✏️ Modifier</button><button type="button" class="primary" id="saveOcrEditBtn" style="display:none">💾 Valider</button><button type="button" class="neutral" id="cancelOcrEditBtn" style="display:none">Annuler</button><button type="button" class="secondary" id="copyOcrBtn">📋 Copier le texte brut</button></div>
+<p class="hint">Tu peux corriger le texte avant d’enregistrer. Les corrections seront conservées dans la fiche.</p></div>
 </section>
 <section class="card"><h2>2. Informations de la commande</h2><label for="clientName">Nom du client</label><input id="clientName" type="text" autocomplete="off" placeholder="Reconnu automatiquement si possible"><label for="orderNo">Numéro de commande *</label><input id="orderNo" type="text" autocomplete="off" placeholder="Ex. : 26CR02781"><label for="frameNo">Numéro du châssis *</label><input id="frameNo" type="text" autocomplete="off" placeholder="Scanner ou encoder le numéro"><p class="hint">Les champs peuvent être corrigés manuellement après la lecture.</p></section>
 <section class="card"><h2>3. Opérations à effectuer</h2><div class="grid" id="operations">
@@ -60,6 +59,640 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <label for="notes">Remarque (facultatif)</label><textarea id="notes" rows="2" placeholder="Une précision si nécessaire"></textarea><div class="actions"><button type="button" class="primary" id="saveBtn">💾 Enregistrer la fiche</button><button type="button" class="neutral" id="resetBtn">Nouvelle fiche / Effacer</button></div><div class="status" id="formStatus" aria-live="polite"></div></section>
 <section class="card"><h2>4. Historique et recherche</h2><label for="searchBox">Rechercher une commande ou un châssis</label><input id="searchBox" type="search" placeholder="Tape un numéro…"><div id="records"><div class="empty">Chargement des fiches…</div></div>
 <div class="actions"><button type="button" class="secondary" id="exportBtn">📤 Exporter sauvegarde</button><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
-</main><footer>Les fiches sont stockées sur cet appareil. Export régulier conseillé : le navigateur peut effacer ses données.</footer>
+</main>
+<div id="cropModal" role="dialog" aria-modal="true" aria-label="Cadrer l’étiquette">
+  <div class="crop-panel">
+    <div class="crop-title">✂️ Cadrer l’étiquette</div>
+    <p class="crop-help">Fais glisser ton doigt sur la photo pour tracer un rectangle autour de l’étiquette, puis valide.</p>
+    <canvas id="cropCanvas"></canvas>
+    <div class="actions"><button type="button" class="neutral" id="cropCancelBtn">Annuler</button><button type="button" class="primary" id="cropApplyBtn">Appliquer le cadrage</button></div>
+  </div>
+</div>
+<footer>Les fiches sont stockées sur cet appareil. Export régulier conseillé : le navigateur peut effacer ses données.</footer>
 </body>
 </html>
+
+
+
+FICHIER 2 : main.js
+Copie cette deuxième partie dans main.js.
+
+import { PaddleOCR } from "@paddleocr/paddleocr-js";
+
+(() => {
+"use strict";
+
+const DB_NAME = "scanChassisDB", DB_VERSION = 1, STORE = "fiches";
+const OPS = ["Empilage","Double empilage","Retour","Double retour","Soudage / Nettoyage ouvrants","Soudage / Nettoyage dormants"];
+const OCR_PLACEHOLDER = "Le texte reconnu apparaîtra ici.";
+let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg", currentOCRText = "";
+let previewUrl = null, liveStream = null, isReading = false, editingId = null, ocrEditOpen = false, photoRotation = 0;
+let cropImage = null, cropRect = null, cropDrag = null, cropScale = 1, originalLabelPhoto = null, originalLabelPhotoType = "image/jpeg";
+
+const $ = id => document.getElementById(id);
+const status = (id, message, error = false) => {
+  const el = $(id);
+  if (el) { el.textContent = message; el.style.color = error ? "#b91c1c" : "#15803d"; }
+};
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(STORE)) {
+        const store = database.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
+        store.createIndex("orderNo", "orderNo", { unique: false });
+        store.createIndex("frameNo", "frameNo", { unique: false });
+      }
+    };
+    request.onsuccess = () => { db = request.result; resolve(db); };
+    request.onerror = () => reject(request.error);
+  });
+}
+function allRecords() {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result.sort((a,b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)));
+    req.onerror = () => reject(req.error);
+  });
+}
+function saveRecord(record) {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, "readwrite").objectStore(STORE)[record.id ? "put" : "add"](record);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function getRecord(id) {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, "readonly").objectStore(STORE).get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function deleteRecord(id) {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, "readwrite").objectStore(STORE).delete(id);
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+  });
+}
+function getOps() {
+  return [...document.querySelectorAll('#operations input[type="checkbox"]:checked')].map(el => el.value);
+}
+function setOps(values) {
+  document.querySelectorAll('#operations input[type="checkbox"]').forEach(el => el.checked = values.includes(el.value));
+}
+function dataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+function setPhoto(data, type = "image/jpeg") {
+  currentPhoto = data;
+  currentPhotoType = type || "image/jpeg";
+  photoRotation = 0;
+  $("preview").style.setProperty("--preview-rotation", "0deg");
+  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  if (data) {
+    $("preview").src = data;
+    $("preview").style.display = "block";
+  } else {
+    $("preview").removeAttribute("src");
+    $("preview").style.display = "none";
+  }
+}
+function setOcrText(text) {
+  currentOCRText = String(text || "");
+  $("ocrResult").textContent = currentOCRText || OCR_PLACEHOLDER;
+}
+function closeOcrEditor() {
+  ocrEditOpen = false;
+  $("ocrEditor").style.display = "none";
+  $("ocrResult").style.display = "block";
+  $("editOcrBtn").style.display = "";
+  $("saveOcrEditBtn").style.display = "none";
+  $("cancelOcrEditBtn").style.display = "none";
+}
+function resetForm() {
+  editingId = null; setPhoto(null); originalLabelPhoto = null; originalLabelPhotoType = "image/jpeg"; currentOCRText = "";
+  $("cameraInput").value = "";
+  $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = ""; $("notes").value = "";
+  setOps([]); $("saveBtn").textContent = "💾 Enregistrer la fiche";
+  setOcrText(""); $("ocrEditor").value = ""; closeOcrEditor();
+  status("formStatus", ""); status("scanStatus", "");
+}
+function loadForm(record) {
+  editingId = record.id; setPhoto(record.photo || null, record.photoType || "image/jpeg"); originalLabelPhoto = record.photo || null; originalLabelPhotoType = record.photoType || "image/jpeg";
+  $("clientName").value = record.clientName || ""; $("orderNo").value = record.orderNo || "";
+  $("frameNo").value = record.frameNo || ""; $("notes").value = record.notes || "";
+  setOcrText(record.ocrText || "");
+  $("ocrEditor").value = ""; closeOcrEditor();
+  setOps(record.operations || []); $("cameraInput").value = "";
+  $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+  status("formStatus", "Fiche chargée. Les modifications seront enregistrées sur cette fiche.");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+}
+function renderRecord(record) {
+  const article = document.createElement("article"); article.className = "record";
+  const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
+  const rawTextBlock = record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : "";
+  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p><p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opération(s)</span></div><p>${ops || "Aucune opération cochée"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${rawTextBlock}${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}<div class="actions"><button type="button" class="secondary edit">✏️ Modifier</button><button type="button" class="danger delete">🗑️ Supprimer</button></div>`;
+  article.querySelector(".edit").addEventListener("click", () => loadForm(record));
+  article.querySelector(".delete").addEventListener("click", async () => {
+    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, châssis ${record.frameNo} ?`)) return;
+    try { await deleteRecord(record.id); await refreshRecords(); if (editingId === record.id) resetForm(); }
+    catch (e) { alert("Impossible de supprimer la fiche : " + e.message); }
+  });
+  return article;
+}
+async function refreshRecords() {
+  const container = $("records");
+  try {
+    const records = await allRecords(), query = $("searchBox").value.trim().toLocaleLowerCase("fr");
+    const filtered = records.filter(r => [r.clientName, r.orderNo, r.frameNo, r.ocrText, ...(r.operations || [])].some(v => String(v || "").toLocaleLowerCase("fr").includes(query)));
+    container.replaceChildren();
+    if (!filtered.length) {
+      const empty = document.createElement("div"); empty.className = "empty";
+      empty.textContent = records.length ? "Aucun résultat pour cette recherche." : "Aucune fiche enregistrée pour le moment.";
+      container.appendChild(empty); return;
+    }
+    filtered.forEach(record => container.appendChild(renderRecord(record)));
+  } catch (e) { container.textContent = "Erreur de lecture : " + e.message; }
+}
+function stopCamera() {
+  if (liveStream) liveStream.getTracks().forEach(track => track.stop());
+  liveStream = null;
+  const video = $("liveVideo");
+  if (video) { video.pause(); video.srcObject = null; video.style.display = "none"; }
+  $("captureBtn").disabled = true; $("stopScanBtn").disabled = true;
+}
+function cleanText(value) { return String(value || "").replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").trim(); }
+function unique(values) { return [...new Set(values.filter(Boolean))]; }
+function predictionToText(prediction) {
+  const parts = [];
+  const seen = new Set();
+  function collect(value, key = "") {
+    if (value == null) return;
+    if (typeof value === "string") {
+      const text = cleanText(value);
+      if (text && /text|transcription|content|rec_text/i.test(key)) parts.push(text);
+      return;
+    }
+    if (typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(item => collect(item, key));
+      return;
+    }
+    for (const k of ["text", "rec_text", "rec_texts", "texts", "transcription", "content"]) {
+      if (Object.prototype.hasOwnProperty.call(value, k)) {
+        const v = value[k];
+        if (typeof v === "string") { if (cleanText(v)) parts.push(cleanText(v)); }
+        else collect(v, k);
+      }
+    }
+    for (const [k, v] of Object.entries(value)) {
+      if (["text", "rec_text", "rec_texts", "texts", "transcription", "content"].includes(k)) continue;
+      if (v && typeof v === "object") collect(v, k);
+    }
+  }
+  collect(prediction);
+  return unique(parts.map(cleanText)).join("\n");
+}
+// Prépare une copie plus légère pour l’OCR sans modifier la photo originale sauvegardée.
+function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82, rotationDegrees = 0) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+        const sourceWidth = Math.max(1, Math.round(image.naturalWidth * scale));
+        const sourceHeight = Math.max(1, Math.round(image.naturalHeight * scale));
+        const normalizedRotation = ((rotationDegrees % 360) + 360) % 360;
+        const sideways = normalizedRotation === 90 || normalizedRotation === 270;
+        const canvas = document.createElement("canvas");
+        canvas.width = sideways ? sourceHeight : sourceWidth;
+        canvas.height = sideways ? sourceWidth : sourceHeight;
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) throw new Error("Impossible de préparer l’image pour l’OCR.");
+        context.translate(canvas.width / 2, canvas.height / 2);
+        context.rotate(normalizedRotation * Math.PI / 180);
+        context.drawImage(image, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error("Impossible de réduire la photo pour l’OCR."));
+        }, "image/jpeg", quality);
+      } catch (error) { reject(error); }
+    };
+    image.onerror = () => reject(new Error("La photo ne peut pas être décodée par le navigateur."));
+    image.src = dataUrl;
+  });
+}
+
+// CORRECTION WAKO : extraction des champs depuis le texte OCR.
+function extractFields(raw) {
+  const lines = String(raw || "")
+    .split(/\r?\n/)
+    .map(cleanText)
+    .filter(Boolean);
+
+  const all = lines.join(" ").toUpperCase();
+  const compact = all.replace(/[^A-Z0-9]/g, "");
+
+  // Numéro de commande, par exemple 26CR02798.
+  const orderMatch = compact.match(/\d{2}CR\d{4,8}/);
+  const order = orderMatch ? orderMatch[0] : "";
+
+  // Nom du client.
+  let client = "";
+  const knownClients = [
+    { pattern: /FRO[I1L]D?MANTEAU/, name: "FROIDMANTEAU" },
+    { pattern: /BELONCLE.*CYR/, name: "BELONCLE CYR" }
+  ];
+
+  for (const item of knownClients) {
+    if (item.pattern.test(all.replace(/[^A-Z0-9 ]/g, " "))) {
+      client = item.name;
+      break;
+    }
+  }
+
+  // Étiquette WAKO : extrait HARTMAN_CELE depuis HARTMAN_CELE·19433.
+  if (!client) {
+    const customerLine = lines.find(line =>
+      /HARTMAN/i.test(line) && /\d{3,}/.test(line)
+    );
+
+    if (customerLine) {
+      client = customerLine
+        .replace(/[·•|]/g, " ")
+        .replace(/\s+\d{3,}.*$/, "")
+        .replace(/[_-]+/g, " ")
+        .trim();
+    }
+  }
+
+  // Numéro de châssis : référence complète ACS1-S P002,
+  // ou ACS1-S 002 lorsque le P n'est pas présent.
+  let chassis = "";
+  for (const line of lines) {
+    const normalizedLine = line.toUpperCase().replace(/[–—]/g, "-");
+    const match = normalizedLine.match(/\bACS1\s*-\s*S\s+(P\s*)?\d{3,6}\b/i);
+    if (match) {
+      const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
+      const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
+      chassis = "ACS1-S " + numberPart;
+      break;
+    }
+  }
+
+  // Tolérance si l'OCR a retiré l'espace après ACS1-S.
+  if (!chassis) {
+    const match = all.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
+    if (match) {
+      const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
+      const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
+      chassis = "ACS1-S " + numberPart;
+    }
+  }
+
+  return { lines, order, client, chassis };
+}
+
+function applyExtractedFields(raw) {
+  const fields = extractFields(raw);
+
+  if (fields.order) $("orderNo").value = fields.order;
+  if (fields.client) $("clientName").value = fields.client;
+  if (fields.chassis) $("frameNo").value = fields.chassis;
+
+  console.log("Champs extraits de l'étiquette WAKO :", fields);
+}
+
+
+// Recadrage facultatif de l'étiquette avant l'OCR. La photo originale reste dans currentPhoto.
+function openCropper() {
+  if (!currentPhoto) {
+    status("scanStatus", "Choisis ou capture d’abord une photo.", true);
+    return;
+  }
+  if (!originalLabelPhoto) { originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType; }
+  const modal = $("cropModal");
+  const canvas = $("cropCanvas");
+  const ctx = canvas.getContext("2d");
+  cropImage = new Image();
+  cropImage.onload = () => {
+    const maxW = Math.min(window.innerWidth - 36, 720);
+    const maxH = Math.min(window.innerHeight * 0.52, 520);
+    cropScale = Math.min(maxW / cropImage.naturalWidth, maxH / cropImage.naturalHeight, 1);
+    canvas.width = Math.max(1, Math.round(cropImage.naturalWidth * cropScale));
+    canvas.height = Math.max(1, Math.round(cropImage.naturalHeight * cropScale));
+    ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
+    cropRect = null;
+    drawCropOverlay();
+    modal.style.display = "flex";
+    status("scanStatus", "Trace un cadre autour de l’étiquette, puis valide.");
+  };
+  cropImage.onerror = () => status("scanStatus", "Impossible d’ouvrir cette photo pour le recadrage.", true);
+  cropImage.src = currentPhoto;
+}
+function drawCropOverlay() {
+  if (!cropImage) return;
+  const canvas = $("cropCanvas"), ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
+  if (!cropRect) return;
+  ctx.save();
+  ctx.fillStyle = "rgba(10,20,40,.45)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(37,99,235,.10)";
+  ctx.fillRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  ctx.strokeStyle = "#2563eb";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8, 4]);
+  ctx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  ctx.restore();
+}
+function cropPointerPosition(event) {
+  const canvas = $("cropCanvas");
+  const bounds = canvas.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(canvas.width, (event.clientX - bounds.left) * canvas.width / bounds.width)),
+    y: Math.max(0, Math.min(canvas.height, (event.clientY - bounds.top) * canvas.height / bounds.height))
+  };
+}
+function startCropDrag(event) {
+  event.preventDefault();
+  const p = cropPointerPosition(event);
+  cropDrag = { x: p.x, y: p.y };
+  cropRect = { x: p.x, y: p.y, w: 0, h: 0 };
+  $("cropCanvas").setPointerCapture?.(event.pointerId);
+  drawCropOverlay();
+}
+function moveCropDrag(event) {
+  if (!cropDrag) return;
+  event.preventDefault();
+  const p = cropPointerPosition(event);
+  cropRect = {
+    x: Math.min(cropDrag.x, p.x),
+    y: Math.min(cropDrag.y, p.y),
+    w: Math.abs(p.x - cropDrag.x),
+    h: Math.abs(p.y - cropDrag.y)
+  };
+  drawCropOverlay();
+}
+function endCropDrag() { cropDrag = null; }
+function closeCropper() {
+  $("cropModal").style.display = "none";
+  cropImage = null;
+  cropRect = null;
+  cropDrag = null;
+}
+function applyCrop() {
+  if (!cropImage || !cropRect || cropRect.w < 12 || cropRect.h < 12) {
+    status("scanStatus", "Trace d’abord un cadre suffisamment grand autour de l’étiquette.", true);
+    return;
+  }
+  const scaleX = cropImage.naturalWidth / $("cropCanvas").width;
+  const scaleY = cropImage.naturalHeight / $("cropCanvas").height;
+  const x = Math.round(cropRect.x * scaleX);
+  const y = Math.round(cropRect.y * scaleY);
+  const w = Math.round(cropRect.w * scaleX);
+  const h = Math.round(cropRect.h * scaleY);
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  out.getContext("2d").drawImage(cropImage, x, y, w, h, 0, 0, w, h);
+  const cropped = out.toDataURL("image/jpeg", .94);
+  // L'image recadrée devient la source de lecture/aperçu ; la photo originale de départ reste mémorisée.
+  setPhoto(cropped, "image/jpeg");
+  closeCropper();
+  setOcrText("Photo recadrée. Appuie sur « Lire le texte de la photo ».");
+  status("scanStatus", "Recadrage appliqué. La photo originale de la fiche est conservée séparément si elle était déjà définie.");
+}
+
+// Correction du texte brut : les changements sont validés avant d’être conservés.
+function beginOcrEdit() {
+  if (isReading) return;
+  const visibleText = $("ocrResult").textContent.trim();
+  $("ocrEditor").value = visibleText === OCR_PLACEHOLDER ? "" : visibleText;
+  ocrEditOpen = true;
+  $("ocrResult").style.display = "none";
+  $("ocrEditor").style.display = "block";
+  $("editOcrBtn").style.display = "none";
+  $("saveOcrEditBtn").style.display = "";
+  $("cancelOcrEditBtn").style.display = "";
+  $("ocrEditor").focus();
+}
+function saveOcrEdit() {
+  if (!ocrEditOpen) return;
+  const corrected = $("ocrEditor").value.trim();
+  setOcrText(corrected);
+  closeOcrEditor();
+  if (corrected) applyExtractedFields(corrected);
+  status("scanStatus", "Texte brut corrigé. Les corrections seront enregistrées avec la fiche.");
+}
+function cancelOcrEdit() {
+  $("ocrEditor").value = "";
+  closeOcrEditor();
+}
+async function runOCR() {
+  if (isReading) return;
+  if (!currentPhoto) {
+    status("scanStatus", "Choisis d’abord une photo de l’étiquette.", true);
+    return;
+  }
+  const savedPhoto = currentPhoto;
+  const savedPhotoType = currentPhotoType;
+  isReading = true;
+  $("readLabelBtn").disabled = true;
+  try {
+    $("preview").src = savedPhoto;
+    $("preview").style.display = "block";
+    status("scanStatus", "Chargement du moteur OCR…");
+    if (!ocrInstance) {
+      ocrInstance = await PaddleOCR.create({
+        lang: "en",
+        ocrVersion: "PP-OCRv5",
+        ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
+      });
+    }
+    status("scanStatus", "Analyse de la photo en cours…");
+    status("scanStatus", "Préparation d’une copie légère de la photo…");
+    setOcrText("Préparation de la photo pour l’analyse… l’original est conservé.");
+    const blob = await makeOCRBlob(savedPhoto, 1500, 0.82, photoRotation);
+    status("scanStatus", "Analyse OCR en cours sur la copie allégée…");
+    setOcrText("Analyse en cours… la photo originale est conservée.");
+    const results = await ocrInstance.predict(blob);
+    console.log("Résultat brut PaddleOCR :", results);
+    const raw = (Array.isArray(results) ? results : [results])
+      .flatMap(result => (result?.items || []).map(item => item?.text || ""))
+      .filter(Boolean)
+      .join("\n");
+    setOcrText(raw || "Aucun texte détecté. Essaie une photo plus nette, prise de face et bien éclairée.");
+    if (raw) applyExtractedFields(raw);
+    status("scanStatus", raw ? "Lecture terminée. Vérifie les champs avant d’enregistrer." : "Aucun texte récupéré. Tu peux réessayer.", !raw);
+  } catch (e) {
+    console.error("Erreur PaddleOCR", e);
+    const errorMessage = e?.message || String(e);
+    setOcrText("Erreur pendant la lecture : " + errorMessage);
+    status("scanStatus", "Erreur OCR : " + errorMessage, true);
+  } finally {
+    currentPhoto = savedPhoto;
+    currentPhotoType = savedPhotoType;
+    if (savedPhoto) {
+      $("preview").setAttribute("src", savedPhoto);
+      $("preview").style.display = "block";
+    }
+    isReading = false;
+    $("readLabelBtn").disabled = false;
+  }
+}
+
+$("editOcrBtn").addEventListener("click", beginOcrEdit);
+$("saveOcrEditBtn").addEventListener("click", saveOcrEdit);
+$("cancelOcrEditBtn").addEventListener("click", cancelOcrEdit);
+$("cameraInput").addEventListener("change", async e => {
+  const file = e.target.files?.[0]; if (!file) return;
+  try {
+    setPhoto(await dataURL(file), file.type);
+    originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType;
+    setOcrText("");
+    $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = "";
+    closeOcrEditor();
+    setOcrText("Photo chargée. Appuie sur « Lire le texte de la photo ».");
+    status("scanStatus", "Photo chargée. Appuie sur « Lire le texte de la photo » pour analyser.");
+  } catch (err) { status("scanStatus", "Impossible de lire la photo : " + err.message, true); }
+});
+$("clearPhotoBtn").addEventListener("click", () => {
+  setPhoto(null); originalLabelPhoto = null; originalLabelPhotoType = "image/jpeg"; $("cameraInput").value = ""; setOcrText(""); closeOcrEditor();
+  status("scanStatus", "Photo retirée de la fiche en cours.");
+});
+function rotatePreview(degrees) {
+  if (!currentPhoto) {
+    status("scanStatus", "Choisis ou capture d’abord une photo.", true);
+    return;
+  }
+  photoRotation = (photoRotation + degrees + 360) % 360;
+  $("preview").style.setProperty("--preview-rotation", `${photoRotation}deg`);
+  status("scanStatus", `Orientation de lecture : ${photoRotation}°. La photo originale reste inchangée.`);
+}
+$("rotateLeftBtn").addEventListener("click", () => rotatePreview(-90));
+$("rotateRightBtn").addEventListener("click", () => rotatePreview(90));
+$("cropBtn").addEventListener("click", openCropper);
+$("cropCancelBtn").addEventListener("click", closeCropper);
+$("cropApplyBtn").addEventListener("click", applyCrop);
+$("cropCanvas").addEventListener("pointerdown", startCropDrag);
+$("cropCanvas").addEventListener("pointermove", moveCropDrag);
+$("cropCanvas").addEventListener("pointerup", endCropDrag);
+$("cropCanvas").addEventListener("pointercancel", endCropDrag);
+$("readLabelBtn").addEventListener("click", runOCR);
+$("copyOcrBtn").addEventListener("click", async () => {
+  const text = (ocrEditOpen ? $("ocrEditor").value : $("ocrResult").textContent).trim();
+  if (!text || text === OCR_PLACEHOLDER) { status("scanStatus", "Aucun texte à copier.", true); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    status("scanStatus", "Texte brut copié. Tu peux le coller où tu veux.");
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(ocrEditOpen ? $("ocrEditor") : $("ocrResult"));
+    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    status("scanStatus", "Sélection du texte effectuée. Appuie longuement puis choisis Copier.");
+  }
+});
+$("barcodeBtn").addEventListener("click", async () => {
+  if (!currentPhoto) { status("scanStatus", "Choisis d’abord une photo.", true); return; }
+  try {
+    const mod = await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");
+    const reader = new mod.BrowserMultiFormatReader();
+    const result = await reader.decodeFromImageUrl(currentPhoto);
+    $("frameNo").value = result.getText();
+    status("scanStatus", "Code-barres lu : " + result.getText() + ". Vérifie-le avant d’enregistrer.");
+  } catch (e) { status("scanStatus", "Code-barres non détecté sur cette photo. Tu peux utiliser la lecture du texte.", true); }
+});
+$("startScanBtn").addEventListener("click", async () => {
+  stopCamera();
+  try {
+    liveStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+    $("liveVideo").srcObject = liveStream; $("liveVideo").style.display = "block"; await $("liveVideo").play();
+    $("captureBtn").disabled = false; $("stopScanBtn").disabled = false;
+    status("scanStatus", "Caméra ouverte. Capture l’étiquette pour la lire.");
+  } catch (e) { stopCamera(); status("scanStatus", "Impossible d’ouvrir la caméra. Vérifie l’autorisation et utilise le site en HTTPS.", true); }
+});
+$("captureBtn").addEventListener("click", async () => {
+  const video = $("liveVideo");
+  if (!video.videoWidth) { status("scanStatus", "Attends que l’image de la caméra apparaisse.", true); return; }
+  const canvas = document.createElement("canvas"); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  setPhoto(canvas.toDataURL("image/jpeg", .92), "image/jpeg"); originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType; stopCamera();
+  setOcrText("Photo capturée. Appuie sur « Lire le texte de la photo ».");
+  status("scanStatus", "Photo capturée. Appuie sur « Lire le texte de la photo » pour lancer l’analyse.");
+});
+$("stopScanBtn").addEventListener("click", () => { stopCamera(); status("scanStatus", "Caméra fermée."); });
+$("saveBtn").addEventListener("click", async () => {
+  if (ocrEditOpen) saveOcrEdit();
+  const orderNo = $("orderNo").value.trim(), frameNo = $("frameNo").value.trim();
+  if (!orderNo) { status("formStatus", "Le numéro de commande est obligatoire.", true); $("orderNo").focus(); return; }
+  if (!frameNo) { status("formStatus", "Le numéro du châssis est obligatoire.", true); $("frameNo").focus(); return; }
+  const now = Date.now();
+  try {
+    const displayedRaw = $("ocrResult").textContent.trim();
+    const isInstruction = displayedRaw === OCR_PLACEHOLDER
+      || displayedRaw.startsWith("Photo chargée.")
+      || displayedRaw.startsWith("Photo capturée.")
+      || displayedRaw.startsWith("Préparation de la photo")
+      || displayedRaw.startsWith("Analyse en cours")
+      || displayedRaw.startsWith("Erreur pendant la lecture :")
+      || displayedRaw.startsWith("Aucun texte détecté.");
+    const ocrText = isInstruction ? "" : displayedRaw;
+    const record = { clientName: $("clientName").value.trim(), orderNo, frameNo, operations: getOps(), notes: $("notes").value.trim(), ocrText, photo: originalLabelPhoto || currentPhoto, photoType: originalLabelPhotoType || currentPhotoType, updatedAt: now };
+    if (editingId) { record.id = editingId; const old = await getRecord(editingId); record.createdAt = old?.createdAt || now; } else record.createdAt = now;
+    editingId = await saveRecord(record);
+    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
+    await refreshRecords();
+  } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
+});
+$("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
+$("searchBox").addEventListener("input", refreshRecords);
+$("exportBtn").addEventListener("click", async () => {
+  try {
+    const records = await allRecords();
+    const blob = new Blob([JSON.stringify({ app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records })], { type: "application/json" });
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = `scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus.`);
+  } catch (e) { status("backupStatus", "Échec de l’export : " + e.message, true); }
+});
+$("importInput").addEventListener("change", async e => {
+  const file = e.target.files?.[0]; if (!file) return;
+  if (!confirm("Importer cette sauvegarde ? Les fiches existantes seront conservées.")) { e.target.value = ""; return; }
+  try {
+    const parsed = JSON.parse(await file.text());
+    if (!Array.isArray(parsed.records)) throw new Error("Format de sauvegarde invalide.");
+    let added = 0, skipped = 0;
+    for (const item of parsed.records) {
+      if (!item?.orderNo || !item?.frameNo) { skipped++; continue; }
+      const existing = await allRecords();
+      if (existing.some(r => r.orderNo === item.orderNo && r.frameNo === item.frameNo && JSON.stringify(r.operations || []) === JSON.stringify(item.operations || []))) { skipped++; continue; }
+      await saveRecord({ clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo), operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""), ocrText: String(item.ocrText || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg", createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now() });
+      added++;
+    }
+    await refreshRecords(); status("backupStatus", `Import terminé : ${added} ajoutée(s), ${skipped} ignorée(s).`);
+  } catch (err) { status("backupStatus", "Import impossible : " + err.message, true); }
+  finally { e.target.value = ""; }
+});
+(async () => {
+  try { await openDB(); await refreshRecords(); }
+  catch (e) { status("formStatus", "Impossible d’ouvrir la base locale : " + e.message, true); }
+})();
+})();
