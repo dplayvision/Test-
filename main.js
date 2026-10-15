@@ -554,10 +554,23 @@ async function runOCR() {
     setOcrText("Analyse en cours… la photo originale est conservée.");
     const results = await ocrInstance.predict(blob);
     console.log("Résultat brut PaddleOCR :", results);
-    const raw = (Array.isArray(results) ? results : [results])
-      .flatMap(result => (result?.items || []).map(item => item?.text || ""))
-      .filter(Boolean)
-      .join("\n");
+    // Nettoyage du logo vertical WAKO : il ne doit pas apparaître dans le texte brut.
+    // On retire le mot exact WAKO ainsi que les lettres W-A-K-O isolées lorsqu'elles
+    // sont reconnues en séquence par l'OCR. Les autres lignes restent inchangées.
+    const ocrLines = (Array.isArray(results) ? results : [results])
+      .flatMap(result => (result?.items || []).map(item => cleanText(item?.text || "")))
+      .filter(Boolean);
+    const filteredLines = [];
+    for (let i = 0; i < ocrLines.length; i++) {
+      const token = ocrLines[i].toUpperCase().replace(/[^A-Z]/g, "");
+      if (token === "WAKO") continue;
+      if (token === "W" && ocrLines.slice(i, i + 4).map(line => line.toUpperCase().replace(/[^A-Z]/g, "")).join("") === "WAKO") {
+        i += 3;
+        continue;
+      }
+      filteredLines.push(ocrLines[i]);
+    }
+    const raw = filteredLines.join("\n");
     setOcrText(raw || "Aucun texte détecté. Essaie une photo plus nette, prise de face et bien éclairée.");
     if (raw) applyExtractedFields(raw);
     status("scanStatus", raw ? "Lecture terminée. Vérifie les champs avant d’enregistrer." : "Aucun texte récupéré. Tu peux réessayer.", !raw);
