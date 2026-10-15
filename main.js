@@ -335,6 +335,70 @@ function openCropper() {
   cropImage.onerror = () => status("scanStatus", "Impossible d’ouvrir cette photo pour le recadrage.", true);
   cropImage.src = currentPhoto;
 }
+// Détection heuristique de la grande zone claire correspondant à l'étiquette.
+// Elle propose un cadre, mais laisse toujours la possibilité de le corriger au doigt.
+function autoDetectLabel() {
+  if (!cropImage) return;
+  const sample = document.createElement("canvas");
+  const maxSide = 240;
+  const scale = Math.min(1, maxSide / Math.max(cropImage.naturalWidth, cropImage.naturalHeight));
+  sample.width = Math.max(1, Math.round(cropImage.naturalWidth * scale));
+  sample.height = Math.max(1, Math.round(cropImage.naturalHeight * scale));
+  const sctx = sample.getContext("2d", { willReadFrequently: true });
+  sctx.drawImage(cropImage, 0, 0, sample.width, sample.height);
+  const data = sctx.getImageData(0, 0, sample.width, sample.height).data;
+  const w = sample.width, h = sample.height, seen = new Uint8Array(w*h);
+  let best = null, bestScore = 0;
+  // Recherche des composantes claires; seuil volontairement strict pour éviter le métal gris.
+  for (let y=0; y<h; y++) for (let x=0; x<w; x++) {
+    const start=y*w+x, p=start*4;
+    if (seen[start]) continue;
+    const r=data[p], g=data[p+1], b=data[p+2];
+    if (!(r>205 && g>205 && b>200 && Math.max(r,g,b)-Math.min(r,g,b)<45)) { seen[start]=1; continue; }
+    const stack=[start]; seen[start]=1; let minX=x,maxX=x,minY=y,maxY=y,count=0;
+    while(stack.length) {
+      const idx=stack.pop(), px=idx%w, py=Math.floor(idx/w); count++;
+      if(px<minX)minX=px;if(px>maxX)maxX=px;if(py<minY)minY=py;if(py>maxY)maxY=py;
+      const neighbors=[idx-1,idx+1,idx-w,idx+w];
+      for(const ni of neighbors){
+        if(ni<0||ni>=w*h||seen[ni])continue;
+        const nx=ni%w, ny=Math.floor(ni/w); if(Math.abs(nx-px)+Math.abs(ny-py)!==1)continue;
+        const q=ni*4, rr=data[q],gg=data[q+1],bb=data[q+2]; seen[ni]=1;
+        if(rr>205&&gg>205&&bb>200&&Math.max(rr,gg,bb)-Math.min(rr,gg,bb)<45) stack.push(ni);
+      }
+    }
+    const bw=maxX-minX+1,bh=maxY-minY+1,area=bw*bh, fraction=area/(w*h), aspect=bw/bh;
+    if(fraction<0.012||fraction>0.72||count<area*0.45)continue;
+    // Favor a substantial, mostly rectangular light area; score penalizes tiny scattered highlights.
+    const rectangularity=count/area;
+    const score=count * rectangularity * (aspect>0.08&&aspect<8 ? 1 : 0.25);
+    if(score>bestScore){bestScore=score;best={x:minX,y:minY,w:bw,h:bh};}
+  }
+  if(best){
+    const sx=$("cropCanvas").width/w, sy=$("cropCanvas").height/h;
+    const padX=Math.max(3,best.w*0.035), padY=Math.max(3,best.h*0.035);
+    const x=Math.max(0,best.x-padX), y=Math.max(0,best.y-padY);
+    const right=Math.min(w,best.x+best.w+padX), bottom=Math.min(h,best.y+best.h+padY);
+    cropRect={x:x*sx,y:y*sy,w:(right-x)*sx,h:(bottom-y)*sy};
+    drawCropOverlay();
+    status("scanStatus","Cadrage automatique proposé. Vérifie les bords et ajuste au doigt si nécessaire.");
+  } else {
+    // Fallback sûr : sélection centrale large, à ajuster manuellement.
+    cropRect={x:$("cropCanvas").width*0.12,y:$("cropCanvas").height*0.12,w:$("cropCanvas").width*0.76,h:$("cropCanvas").height*0.76};
+    drawCropOverlay();
+    status("scanStatus","Je n’ai pas isolé les bords avec certitude. Un cadre de départ est proposé : ajuste-le au doigt.",true);
+  }
+}
+function adjustCropZoom(factor) {
+  const canvas=$("cropCanvas");
+  if(!cropRect){cropRect={x:canvas.width*.12,y:canvas.height*.12,w:canvas.width*.76,h:canvas.height*.76};}
+  const cx=cropRect.x+cropRect.w/2, cy=cropRect.y+cropRect.h/2;
+  const nw=Math.max(24,Math.min(canvas.width,cropRect.w*factor));
+  const nh=Math.max(24,Math.min(canvas.height,cropRect.h*factor));
+  cropRect={x:Math.max(0,Math.min(canvas.width-nw,cx-nw/2)),y:Math.max(0,Math.min(canvas.height-nh,cy-nh/2)),w:nw,h:nh};
+  drawCropOverlay();
+}
+
 function drawCropOverlay() {
   if (!cropImage) return;
   const canvas = $("cropCanvas"), ctx = canvas.getContext("2d");
@@ -526,6 +590,9 @@ $("cropCanvas").addEventListener("pointerdown", startCropDrag);
 $("cropCanvas").addEventListener("pointermove", moveCropDrag);
 $("cropCanvas").addEventListener("pointerup", endCropDrag);
 $("cropCanvas").addEventListener("pointercancel", endCropDrag);
+$("autoCropBtn").addEventListener("click", autoDetectLabel);
+$("zoomInBtn").addEventListener("click", () => adjustCropZoom(0.88));
+$("zoomOutBtn").addEventListener("click", () => adjustCropZoom(1.12));
 $("readLabelBtn").addEventListener("click", runOCR);
 $("copyOcrBtn").addEventListener("click", async () => {
   const text = (ocrEditOpen ? $("ocrEditor").value : $("ocrResult").textContent).trim();
