@@ -309,7 +309,29 @@ function applyExtractedFields(raw) {
 }
 
 
-// Recadrage facultatif de l'étiquette avant l'OCR. La photo originale reste dans currentPhoto.
+// Recadrage : prépare d'abord une copie tournée selon l'orientation choisie par l'utilisateur.
+// La photo originale reste intacte pour l'historique et les sauvegardes.
+function makeRotatedCropSource(dataUrl, degrees) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const rotation = ((degrees % 360) + 360) % 360;
+        const sideways = rotation === 90 || rotation === 270;
+        const canvas = document.createElement("canvas");
+        canvas.width = sideways ? image.naturalHeight : image.naturalWidth;
+        canvas.height = sideways ? image.naturalWidth : image.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(rotation * Math.PI / 180);
+        ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+        resolve(canvas.toDataURL("image/jpeg", .94));
+      } catch (error) { reject(error); }
+    };
+    image.onerror = () => reject(new Error("Impossible de tourner la photo pour le recadrage."));
+    image.src = dataUrl;
+  });
+}
 function openCropper() {
   if (!currentPhoto) {
     status("scanStatus", "Choisis ou capture d’abord une photo.", true);
@@ -319,21 +341,24 @@ function openCropper() {
   const modal = $("cropModal");
   const canvas = $("cropCanvas");
   const ctx = canvas.getContext("2d");
-  cropImage = new Image();
-  cropImage.onload = () => {
-    const maxW = Math.min(window.innerWidth - 36, 720);
-    const maxH = Math.min(window.innerHeight * 0.52, 520);
-    cropScale = Math.min(maxW / cropImage.naturalWidth, maxH / cropImage.naturalHeight, 1);
-    canvas.width = Math.max(1, Math.round(cropImage.naturalWidth * cropScale));
-    canvas.height = Math.max(1, Math.round(cropImage.naturalHeight * cropScale));
-    ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
-    cropRect = null;
-    drawCropOverlay();
-    modal.style.display = "flex";
-    status("scanStatus", "Trace un cadre autour de l’étiquette, puis valide.");
-  };
-  cropImage.onerror = () => status("scanStatus", "Impossible d’ouvrir cette photo pour le recadrage.", true);
-  cropImage.src = currentPhoto;
+  status("scanStatus", photoRotation ? "Préparation de la photo tournée pour le cadrage…" : "Ouverture du cadrage…");
+  makeRotatedCropSource(currentPhoto, photoRotation).then(rotatedSource => {
+    cropImage = new Image();
+    cropImage.onload = () => {
+      const maxW = Math.min(window.innerWidth - 36, 720);
+      const maxH = Math.min(window.innerHeight * 0.52, 520);
+      cropScale = Math.min(maxW / cropImage.naturalWidth, maxH / cropImage.naturalHeight, 1);
+      canvas.width = Math.max(1, Math.round(cropImage.naturalWidth * cropScale));
+      canvas.height = Math.max(1, Math.round(cropImage.naturalHeight * cropScale));
+      ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
+      cropRect = null;
+      drawCropOverlay();
+      modal.style.display = "flex";
+      status("scanStatus", "La photo garde son orientation. Trace le cadre ou utilise le cadrage automatique.");
+    };
+    cropImage.onerror = () => status("scanStatus", "Impossible d’ouvrir cette photo pour le recadrage.", true);
+    cropImage.src = rotatedSource;
+  }).catch(error => status("scanStatus", error.message, true));
 }
 // Détection heuristique de la grande zone claire correspondant à l'étiquette.
 // Elle propose un cadre, mais laisse toujours la possibilité de le corriger au doigt.
