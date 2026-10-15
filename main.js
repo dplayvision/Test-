@@ -224,67 +224,67 @@ function extractFields(raw) {
     .map(cleanText)
     .filter(Boolean);
 
-  const all = lines.join(" ").toUpperCase();
-  const compact = all.replace(/[^A-Z0-9]/g, "");
+  const upperLines = lines.map(line => line.toUpperCase());
+  const all = upperLines.join(" ");
 
-  // Commande : accepte les espaces ou séparateurs que l'OCR peut ajouter.
-  const orderMatch = compact.match(/\d{2}CR\d{4,8}/);
-  const order = orderMatch ? orderMatch[0] : "";
+  // Commande : cherche le motif sur une seule ligne pour éviter d'ajouter
+  // un chiffre isolé provenant d'une autre partie de l'étiquette.
+  let order = "";
+  for (const line of upperLines) {
+    const match = line.replace(/\s+/g, "").match(/\d{2}CR\d{4,8}/);
+    if (match) { order = match[0]; break; }
+  }
 
-  // Client : le nom peut être seul sur une ligne ou suivi d'un identifiant.
-  // On ne dépend donc plus obligatoirement d'un numéro client sur la même ligne.
+  // Nom du client : privilégie la ligne qui contient le nom et son identifiant
+  // client (ex. DEBOUGNOUX_S 19433), puis retire uniquement l'identifiant.
   let client = "";
-  const normalizedLines = lines.map(line => line
-    .replace(/[·•|]/g, " ")
-    .replace(/[_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim());
-
-  const ignored = /\b(?:CHASSIS|CHÂSSIS|GAS1|CAS1|ACS1|WAKO|COMMANDE|ORDER|CLIENT|BARCODE|CODE.?BARRE|REFERENCE|RÉFÉRENCE|QUANTITE|QUANTITÉ|COULEUR|DIMENSION|DATE|815[BSE]?\d{4,})\b/i;
-  const candidates = [];
-  for (let i = 0; i < normalizedLines.length; i++) {
-    let line = normalizedLines[i];
-    // Ignore la ligne de commande et les codes numériques accolés au nom.
-    if (/\d{2}\s*CR\s*\d{4,8}/i.test(line) || ignored.test(line)) continue;
-    line = line.replace(/\b\d{4,8}\b.*$/, "").replace(/\s*[-–—:]\s*$/, "").trim();
-    line = line.replace(/[^A-ZÀ-ÖØ-Þa-zà-öø-ÿ' .-]/g, " ").replace(/\s+/g, " ").trim();
-    if (line.length < 4 || line.length > 55) continue;
-    const letters = (line.match(/[A-ZÀ-ÖØ-Þa-zà-öø-ÿ]/g) || []).length;
-    if (letters < 4) continue;
-    // Les noms de client comportent généralement au moins deux mots ; accepte aussi les noms longs composés.
-    const words = line.split(/\s+/).filter(Boolean);
-    if (words.length < 2) continue;
-    if (/^(?:EMPILAGE|RETOUR|SOUDAGE|NETTOYAGE|OUVRANTS|DORMANTS)$/i.test(line)) continue;
-    let score = letters + (words.length >= 2 ? 12 : 0);
-    if (/[À-ÖØ-Þ]/.test(line)) score += 2;
-    // Les lignes proches de la commande sont souvent le nom ou l'adresse client.
-    const orderLineIndex = normalizedLines.findIndex(v => /\d{2}\s*CR\s*\d{4,8}/i.test(v));
-    if (orderLineIndex >= 0) score += Math.max(0, 8 - Math.abs(i - orderLineIndex) * 2);
-    candidates.push({ line, score, index: i });
+  const clientLine = lines.find(line =>
+    /\b\d{4,6}\b/.test(line) &&
+    /[A-Za-zÀ-ÿ]/.test(line) &&
+    !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
+    !/815[BSE]?\d{5,}/i.test(line) &&
+    !/CHASSIS|GAS1|CAS1|ACS1|WAKO/i.test(line)
+  );
+  if (clientLine) {
+    client = clientLine
+      .replace(/[·•|]/g, " ")
+      .replace(/\b\d{4,6}\b.*$/, "")
+      .replace(/\[[^\]]*\]/g, " ")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
-  // Préférence à une ligne explicitement reconnue comme nom connu, sinon meilleure candidate.
-  const knownClients = [
-    { pattern: /FRO[I1L]D\s*MANTEAU/i, name: "FROIDMANTEAU" },
-    { pattern: /BELONCLE.*CYR/i, name: "BELONCLE CYR" }
-  ];
-  for (const item of knownClients) {
-    if (item.pattern.test(all.replace(/[_·•|]/g, " "))) { client = item.name; break; }
+  // Nettoyage ciblé de noms où l'OCR insère des espaces au milieu d'un mot.
+  // Exemple connu sur l'étiquette visible : DEB UGN UX S -> DEBOUGNOUX S.
+  const compactClient = client.toUpperCase().replace(/[^A-ZÀ-Ÿ]/g, "");
+  if (compactClient === "DEBUGNOUXS" || compactClient === "DEBOUGNOUXS" ||
+      /DEB.*UGN.*UX.*S/.test(client.toUpperCase())) {
+    client = "DEBOUGNOUX S";
   }
-  if (!client && candidates.length) {
-    candidates.sort((a, b) => b.score - a.score || a.index - b.index);
-    client = candidates[0].line;
-  }
-  client = client.replace(/\s+/g, " ").trim();
 
-  // Châssis : GAS1 006 / CAS1 006 et ancien format ACS1-S P002 / ACS1-S 002.
+  // Repli pour les clients sans identifiant numérique sur la même ligne.
+  if (!client) {
+    const candidate = lines.find(line =>
+      /[A-Za-zÀ-ÿ]{4,}/.test(line) &&
+      !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
+      !/CHASSIS|GAS1|CAS1|ACS1|WAKO|815[BSE]?\d{5,}/i.test(line) &&
+      !/^\[?LI[- ]?\d+\]?$/i.test(line) &&
+      !/^\/?\d{3,}\W*$/.test(line)
+    );
+    if (candidate) {
+      client = candidate.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+    }
+  }
+
+  // Châssis : GAS1 006 / CAS1 006 et ancien format ACS1-S P002.
   let chassis = "";
   const gasMatch = all.match(/\b(GA|CA)S1\s*[-_ ]*\s*(\d{3})\b/i);
   if (gasMatch) chassis = "GAS1 " + gasMatch[2];
 
   if (!chassis) {
-    for (const line of lines) {
-      const normalizedLine = line.toUpperCase().replace(/[–—]/g, "-");
+    for (const line of upperLines) {
+      const normalizedLine = line.replace(/[–—]/g, "-");
       const match = normalizedLine.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
       if (match) {
         const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
