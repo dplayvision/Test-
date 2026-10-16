@@ -9,6 +9,7 @@ const OCR_PLACEHOLDER = "Le texte reconnu apparaîtra ici.";
 let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg", currentOCRText = "";
 let previewUrl = null, liveStream = null, isReading = false, editingId = null, ocrEditOpen = false, photoRotation = 0;
 let cropImage = null, cropRect = null, cropDrag = null, cropScale = 1, originalLabelPhoto = null, originalLabelPhotoType = "image/jpeg";
+let cropDragMode = "draw", cropDragStart = null, cropRectStart = null, cropResizeHandle = null;
 
 const $ = id => document.getElementById(id);
 const status = (id, message, error = false) => {
@@ -224,74 +225,63 @@ function extractFields(raw) {
     .map(cleanText)
     .filter(Boolean);
 
-  const upperLines = lines.map(line => line.toUpperCase());
-  const all = upperLines.join(" ");
+  const all = lines.join(" ").toUpperCase();
+  const compact = all.replace(/[^A-Z0-9]/g, "");
 
-  // Commande : cherche le motif sur une seule ligne pour éviter d'ajouter
-  // un chiffre isolé provenant d'une autre partie de l'étiquette.
-  let order = "";
-  for (const line of upperLines) {
-    const match = line.replace(/\s+/g, "").match(/\d{2}CR\d{4,8}/);
-    if (match) { order = match[0]; break; }
-  }
+  // Numéro de commande, par exemple 26CR02798.
+  const orderMatch = compact.match(/\d{2}CR\d{4,8}/);
+  const order = orderMatch ? orderMatch[0] : "";
 
-  // Nom du client : privilégie la ligne qui contient le nom et son identifiant
-  // client (ex. DEBOUGNOUX_S 19433), puis retire uniquement l'identifiant.
+  // Nom du client.
   let client = "";
-  const clientLine = lines.find(line =>
-    /\b\d{4,6}\b/.test(line) &&
-    /[A-Za-zÀ-ÿ]/.test(line) &&
-    !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
-    !/815[BSE]?\d{5,}/i.test(line) &&
-    !/CHASSIS|GAS1|CAS1|ACS1|WAKO/i.test(line)
-  );
-  if (clientLine) {
-    client = clientLine
-      .replace(/[·•|]/g, " ")
-      .replace(/\b\d{4,6}\b.*$/, "")
-      .replace(/\[[^\]]*\]/g, " ")
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
+  const knownClients = [
+    { pattern: /FRO[I1L]D?MANTEAU/, name: "FROIDMANTEAU" },
+    { pattern: /BELONCLE.*CYR/, name: "BELONCLE CYR" }
+  ];
 
-  // Nettoyage ciblé de noms où l'OCR insère des espaces au milieu d'un mot.
-  // Exemple connu sur l'étiquette visible : DEB UGN UX S -> DEBOUGNOUX S.
-  const compactClient = client.toUpperCase().replace(/[^A-ZÀ-Ÿ]/g, "");
-  if (compactClient === "DEBUGNOUXS" || compactClient === "DEBOUGNOUXS" ||
-      /DEB.*UGN.*UX.*S/.test(client.toUpperCase())) {
-    client = "DEBOUGNOUX S";
-  }
-
-  // Repli pour les clients sans identifiant numérique sur la même ligne.
-  if (!client) {
-    const candidate = lines.find(line =>
-      /[A-Za-zÀ-ÿ]{4,}/.test(line) &&
-      !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
-      !/CHASSIS|GAS1|CAS1|ACS1|WAKO|815[BSE]?\d{5,}/i.test(line) &&
-      !/^\[?LI[- ]?\d+\]?$/i.test(line) &&
-      !/^\/?\d{3,}\W*$/.test(line)
-    );
-    if (candidate) {
-      client = candidate.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  for (const item of knownClients) {
+    if (item.pattern.test(all.replace(/[^A-Z0-9 ]/g, " "))) {
+      client = item.name;
+      break;
     }
   }
 
-  // Châssis : GAS1 006 / CAS1 006 et ancien format ACS1-S P002.
-  let chassis = "";
-  const gasMatch = all.match(/\b(GA|CA)S1\s*[-_ ]*\s*(\d{3})\b/i);
-  if (gasMatch) chassis = "GAS1 " + gasMatch[2];
+  // Étiquette WAKO : extrait HARTMAN_CELE depuis HARTMAN_CELE·19433.
+  if (!client) {
+    const customerLine = lines.find(line =>
+      /HARTMAN/i.test(line) && /\d{3,}/.test(line)
+    );
 
+    if (customerLine) {
+      client = customerLine
+        .replace(/[·•|]/g, " ")
+        .replace(/\s+\d{3,}.*$/, "")
+        .replace(/[_-]+/g, " ")
+        .trim();
+    }
+  }
+
+  // Numéro de châssis : référence complète ACS1-S P002,
+  // ou ACS1-S 002 lorsque le P n'est pas présent.
+  let chassis = "";
+  for (const line of lines) {
+    const normalizedLine = line.toUpperCase().replace(/[–—]/g, "-");
+    const match = normalizedLine.match(/\bACS1\s*-\s*S\s+(P\s*)?\d{3,6}\b/i);
+    if (match) {
+      const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
+      const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
+      chassis = "ACS1-S " + numberPart;
+      break;
+    }
+  }
+
+  // Tolérance si l'OCR a retiré l'espace après ACS1-S.
   if (!chassis) {
-    for (const line of upperLines) {
-      const normalizedLine = line.replace(/[–—]/g, "-");
-      const match = normalizedLine.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
-      if (match) {
-        const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
-        const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
-        chassis = "ACS1-S " + numberPart;
-        break;
-      }
+    const match = all.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
+    if (match) {
+      const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
+      const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
+      chassis = "ACS1-S " + numberPart;
     }
   }
 
@@ -309,29 +299,7 @@ function applyExtractedFields(raw) {
 }
 
 
-// Recadrage : prépare d'abord une copie tournée selon l'orientation choisie par l'utilisateur.
-// La photo originale reste intacte pour l'historique et les sauvegardes.
-function makeRotatedCropSource(dataUrl, degrees) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => {
-      try {
-        const rotation = ((degrees % 360) + 360) % 360;
-        const sideways = rotation === 90 || rotation === 270;
-        const canvas = document.createElement("canvas");
-        canvas.width = sideways ? image.naturalHeight : image.naturalWidth;
-        canvas.height = sideways ? image.naturalWidth : image.naturalHeight;
-        const ctx = canvas.getContext("2d");
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(rotation * Math.PI / 180);
-        ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
-        resolve(canvas.toDataURL("image/jpeg", .94));
-      } catch (error) { reject(error); }
-    };
-    image.onerror = () => reject(new Error("Impossible de tourner la photo pour le recadrage."));
-    image.src = dataUrl;
-  });
-}
+// Recadrage facultatif de l'étiquette avant l'OCR. La photo originale reste dans currentPhoto.
 function openCropper() {
   if (!currentPhoto) {
     status("scanStatus", "Choisis ou capture d’abord une photo.", true);
@@ -341,89 +309,22 @@ function openCropper() {
   const modal = $("cropModal");
   const canvas = $("cropCanvas");
   const ctx = canvas.getContext("2d");
-  status("scanStatus", photoRotation ? "Préparation de la photo tournée pour le cadrage…" : "Ouverture du cadrage…");
-  makeRotatedCropSource(currentPhoto, photoRotation).then(rotatedSource => {
-    cropImage = new Image();
-    cropImage.onload = () => {
-      const maxW = Math.min(window.innerWidth - 36, 720);
-      const maxH = Math.min(window.innerHeight * 0.52, 520);
-      cropScale = Math.min(maxW / cropImage.naturalWidth, maxH / cropImage.naturalHeight, 1);
-      canvas.width = Math.max(1, Math.round(cropImage.naturalWidth * cropScale));
-      canvas.height = Math.max(1, Math.round(cropImage.naturalHeight * cropScale));
-      ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
-      cropRect = null;
-      drawCropOverlay();
-      modal.style.display = "flex";
-      status("scanStatus", "La photo garde son orientation. Trace le cadre ou utilise le cadrage automatique.");
-    };
-    cropImage.onerror = () => status("scanStatus", "Impossible d’ouvrir cette photo pour le recadrage.", true);
-    cropImage.src = rotatedSource;
-  }).catch(error => status("scanStatus", error.message, true));
-}
-// Détection heuristique de la grande zone claire correspondant à l'étiquette.
-// Elle propose un cadre, mais laisse toujours la possibilité de le corriger au doigt.
-function autoDetectLabel() {
-  if (!cropImage) return;
-  const sample = document.createElement("canvas");
-  const maxSide = 240;
-  const scale = Math.min(1, maxSide / Math.max(cropImage.naturalWidth, cropImage.naturalHeight));
-  sample.width = Math.max(1, Math.round(cropImage.naturalWidth * scale));
-  sample.height = Math.max(1, Math.round(cropImage.naturalHeight * scale));
-  const sctx = sample.getContext("2d", { willReadFrequently: true });
-  sctx.drawImage(cropImage, 0, 0, sample.width, sample.height);
-  const data = sctx.getImageData(0, 0, sample.width, sample.height).data;
-  const w = sample.width, h = sample.height, seen = new Uint8Array(w*h);
-  let best = null, bestScore = 0;
-  // Recherche des composantes claires; seuil volontairement strict pour éviter le métal gris.
-  for (let y=0; y<h; y++) for (let x=0; x<w; x++) {
-    const start=y*w+x, p=start*4;
-    if (seen[start]) continue;
-    const r=data[p], g=data[p+1], b=data[p+2];
-    if (!(r>205 && g>205 && b>200 && Math.max(r,g,b)-Math.min(r,g,b)<45)) { seen[start]=1; continue; }
-    const stack=[start]; seen[start]=1; let minX=x,maxX=x,minY=y,maxY=y,count=0;
-    while(stack.length) {
-      const idx=stack.pop(), px=idx%w, py=Math.floor(idx/w); count++;
-      if(px<minX)minX=px;if(px>maxX)maxX=px;if(py<minY)minY=py;if(py>maxY)maxY=py;
-      const neighbors=[idx-1,idx+1,idx-w,idx+w];
-      for(const ni of neighbors){
-        if(ni<0||ni>=w*h||seen[ni])continue;
-        const nx=ni%w, ny=Math.floor(ni/w); if(Math.abs(nx-px)+Math.abs(ny-py)!==1)continue;
-        const q=ni*4, rr=data[q],gg=data[q+1],bb=data[q+2]; seen[ni]=1;
-        if(rr>205&&gg>205&&bb>200&&Math.max(rr,gg,bb)-Math.min(rr,gg,bb)<45) stack.push(ni);
-      }
-    }
-    const bw=maxX-minX+1,bh=maxY-minY+1,area=bw*bh, fraction=area/(w*h), aspect=bw/bh;
-    if(fraction<0.012||fraction>0.72||count<area*0.45)continue;
-    // Favor a substantial, mostly rectangular light area; score penalizes tiny scattered highlights.
-    const rectangularity=count/area;
-    const score=count * rectangularity * (aspect>0.08&&aspect<8 ? 1 : 0.25);
-    if(score>bestScore){bestScore=score;best={x:minX,y:minY,w:bw,h:bh};}
-  }
-  if(best){
-    const sx=$("cropCanvas").width/w, sy=$("cropCanvas").height/h;
-    const padX=Math.max(3,best.w*0.035), padY=Math.max(3,best.h*0.035);
-    const x=Math.max(0,best.x-padX), y=Math.max(0,best.y-padY);
-    const right=Math.min(w,best.x+best.w+padX), bottom=Math.min(h,best.y+best.h+padY);
-    cropRect={x:x*sx,y:y*sy,w:(right-x)*sx,h:(bottom-y)*sy};
+  cropImage = new Image();
+  cropImage.onload = () => {
+    const maxW = Math.min(window.innerWidth - 36, 720);
+    const maxH = Math.min(window.innerHeight * 0.52, 520);
+    cropScale = Math.min(maxW / cropImage.naturalWidth, maxH / cropImage.naturalHeight, 1);
+    canvas.width = Math.max(1, Math.round(cropImage.naturalWidth * cropScale));
+    canvas.height = Math.max(1, Math.round(cropImage.naturalHeight * cropScale));
+    ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
+    cropRect = null;
     drawCropOverlay();
-    status("scanStatus","Cadrage automatique proposé. Vérifie les bords et ajuste au doigt si nécessaire.");
-  } else {
-    // Fallback sûr : sélection centrale large, à ajuster manuellement.
-    cropRect={x:$("cropCanvas").width*0.12,y:$("cropCanvas").height*0.12,w:$("cropCanvas").width*0.76,h:$("cropCanvas").height*0.76};
-    drawCropOverlay();
-    status("scanStatus","Je n’ai pas isolé les bords avec certitude. Un cadre de départ est proposé : ajuste-le au doigt.",true);
-  }
+    modal.style.display = "flex";
+    status("scanStatus", "Trace un cadre autour de l’étiquette, puis valide.");
+  };
+  cropImage.onerror = () => status("scanStatus", "Impossible d’ouvrir cette photo pour le recadrage.", true);
+  cropImage.src = currentPhoto;
 }
-function adjustCropZoom(factor) {
-  const canvas=$("cropCanvas");
-  if(!cropRect){cropRect={x:canvas.width*.12,y:canvas.height*.12,w:canvas.width*.76,h:canvas.height*.76};}
-  const cx=cropRect.x+cropRect.w/2, cy=cropRect.y+cropRect.h/2;
-  const nw=Math.max(24,Math.min(canvas.width,cropRect.w*factor));
-  const nh=Math.max(24,Math.min(canvas.height,cropRect.h*factor));
-  cropRect={x:Math.max(0,Math.min(canvas.width-nw,cx-nw/2)),y:Math.max(0,Math.min(canvas.height-nh,cy-nh/2)),w:nw,h:nh};
-  drawCropOverlay();
-}
-
 function drawCropOverlay() {
   if (!cropImage) return;
   const canvas = $("cropCanvas"), ctx = canvas.getContext("2d");
@@ -441,6 +342,21 @@ function drawCropOverlay() {
   ctx.lineWidth = 3;
   ctx.setLineDash([8, 4]);
   ctx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  ctx.setLineDash([]);
+  // Poignées visibles aux quatre coins pour redimensionner le cadre au doigt.
+  const r = 8;
+  const corners = [
+    [cropRect.x, cropRect.y],
+    [cropRect.x + cropRect.w, cropRect.y],
+    [cropRect.x, cropRect.y + cropRect.h],
+    [cropRect.x + cropRect.w, cropRect.y + cropRect.h]
+  ];
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#2563eb";
+  ctx.lineWidth = 2;
+  for (const [x, y] of corners) {
+    ctx.beginPath(); ctx.rect(x - r, y - r, r * 2, r * 2); ctx.fill(); ctx.stroke();
+  }
   ctx.restore();
 }
 function cropPointerPosition(event) {
@@ -451,27 +367,71 @@ function cropPointerPosition(event) {
     y: Math.max(0, Math.min(canvas.height, (event.clientY - bounds.top) * canvas.height / bounds.height))
   };
 }
+function cropHitTest(p) {
+  if (!cropRect) return { mode: "draw", handle: null };
+  const hit = 20;
+  const corners = [
+    { name: "nw", x: cropRect.x, y: cropRect.y },
+    { name: "ne", x: cropRect.x + cropRect.w, y: cropRect.y },
+    { name: "sw", x: cropRect.x, y: cropRect.y + cropRect.h },
+    { name: "se", x: cropRect.x + cropRect.w, y: cropRect.y + cropRect.h }
+  ];
+  for (const c of corners) {
+    if (Math.abs(p.x - c.x) <= hit && Math.abs(p.y - c.y) <= hit) return { mode: "resize", handle: c.name };
+  }
+  if (p.x >= cropRect.x && p.x <= cropRect.x + cropRect.w && p.y >= cropRect.y && p.y <= cropRect.y + cropRect.h) {
+    return { mode: "move", handle: null };
+  }
+  return { mode: "draw", handle: null };
+}
 function startCropDrag(event) {
   event.preventDefault();
   const p = cropPointerPosition(event);
+  const hit = cropHitTest(p);
+  cropDragMode = hit.mode;
+  cropResizeHandle = hit.handle;
+  cropDragStart = { x: p.x, y: p.y };
+  cropRectStart = cropRect ? { ...cropRect } : null;
+  if (cropDragMode === "draw") cropRect = { x: p.x, y: p.y, w: 0, h: 0 };
   cropDrag = { x: p.x, y: p.y };
-  cropRect = { x: p.x, y: p.y, w: 0, h: 0 };
   $("cropCanvas").setPointerCapture?.(event.pointerId);
   drawCropOverlay();
 }
 function moveCropDrag(event) {
-  if (!cropDrag) return;
+  if (!cropDrag || !cropDragStart) return;
   event.preventDefault();
   const p = cropPointerPosition(event);
-  cropRect = {
-    x: Math.min(cropDrag.x, p.x),
-    y: Math.min(cropDrag.y, p.y),
-    w: Math.abs(p.x - cropDrag.x),
-    h: Math.abs(p.y - cropDrag.y)
-  };
+  const dx = p.x - cropDragStart.x;
+  const dy = p.y - cropDragStart.y;
+  const canvas = $("cropCanvas");
+  if (cropDragMode === "draw") {
+    cropRect = {
+      x: Math.min(cropDragStart.x, p.x),
+      y: Math.min(cropDragStart.y, p.y),
+      w: Math.abs(dx),
+      h: Math.abs(dy)
+    };
+  } else if (cropDragMode === "move" && cropRectStart) {
+    const x = Math.max(0, Math.min(canvas.width - cropRectStart.w, cropRectStart.x + dx));
+    const y = Math.max(0, Math.min(canvas.height - cropRectStart.h, cropRectStart.y + dy));
+    cropRect = { ...cropRectStart, x, y };
+  } else if (cropDragMode === "resize" && cropRectStart) {
+    let left = cropRectStart.x, top = cropRectStart.y;
+    let right = cropRectStart.x + cropRectStart.w, bottom = cropRectStart.y + cropRectStart.h;
+    if (cropResizeHandle.includes("w")) left = Math.max(0, Math.min(right - 12, cropRectStart.x + dx));
+    if (cropResizeHandle.includes("e")) right = Math.min(canvas.width, Math.max(left + 12, cropRectStart.x + cropRectStart.w + dx));
+    if (cropResizeHandle.includes("n")) top = Math.max(0, Math.min(bottom - 12, cropRectStart.y + dy));
+    if (cropResizeHandle.includes("s")) bottom = Math.min(canvas.height, Math.max(top + 12, cropRectStart.y + cropRectStart.h + dy));
+    cropRect = { x: left, y: top, w: right - left, h: bottom - top };
+  }
   drawCropOverlay();
 }
-function endCropDrag() { cropDrag = null; }
+function endCropDrag() {
+  cropDrag = null;
+  cropDragStart = null;
+  cropRectStart = null;
+  cropResizeHandle = null;
+}
 function closeCropper() {
   $("cropModal").style.display = "none";
   cropImage = null;
@@ -554,23 +514,10 @@ async function runOCR() {
     setOcrText("Analyse en cours… la photo originale est conservée.");
     const results = await ocrInstance.predict(blob);
     console.log("Résultat brut PaddleOCR :", results);
-    // Nettoyage du logo vertical WAKO : il ne doit pas apparaître dans le texte brut.
-    // On retire le mot exact WAKO ainsi que les lettres W-A-K-O isolées lorsqu'elles
-    // sont reconnues en séquence par l'OCR. Les autres lignes restent inchangées.
-    const ocrLines = (Array.isArray(results) ? results : [results])
-      .flatMap(result => (result?.items || []).map(item => cleanText(item?.text || "")))
-      .filter(Boolean);
-    const filteredLines = [];
-    for (let i = 0; i < ocrLines.length; i++) {
-      const token = ocrLines[i].toUpperCase().replace(/[^A-Z]/g, "");
-      if (token === "WAKO") continue;
-      if (token === "W" && ocrLines.slice(i, i + 4).map(line => line.toUpperCase().replace(/[^A-Z]/g, "")).join("") === "WAKO") {
-        i += 3;
-        continue;
-      }
-      filteredLines.push(ocrLines[i]);
-    }
-    const raw = filteredLines.join("\n");
+    const raw = (Array.isArray(results) ? results : [results])
+      .flatMap(result => (result?.items || []).map(item => item?.text || ""))
+      .filter(Boolean)
+      .join("\n");
     setOcrText(raw || "Aucun texte détecté. Essaie une photo plus nette, prise de face et bien éclairée.");
     if (raw) applyExtractedFields(raw);
     status("scanStatus", raw ? "Lecture terminée. Vérifie les champs avant d’enregistrer." : "Aucun texte récupéré. Tu peux réessayer.", !raw);
@@ -628,9 +575,6 @@ $("cropCanvas").addEventListener("pointerdown", startCropDrag);
 $("cropCanvas").addEventListener("pointermove", moveCropDrag);
 $("cropCanvas").addEventListener("pointerup", endCropDrag);
 $("cropCanvas").addEventListener("pointercancel", endCropDrag);
-$("autoCropBtn").addEventListener("click", autoDetectLabel);
-$("zoomInBtn").addEventListener("click", () => adjustCropZoom(0.88));
-$("zoomOutBtn").addEventListener("click", () => adjustCropZoom(1.12));
 $("readLabelBtn").addEventListener("click", runOCR);
 $("copyOcrBtn").addEventListener("click", async () => {
   const text = (ocrEditOpen ? $("ocrEditor").value : $("ocrResult").textContent).trim();
