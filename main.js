@@ -188,6 +188,7 @@ function predictionToText(prediction) {
   collect(prediction);
   return unique(parts.map(cleanText)).join("\n");
 }
+// Prépare une copie plus légère pour l’OCR sans modifier la photo originale sauvegardée.
 function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82, rotationDegrees = 0) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -216,8 +217,13 @@ function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82, rotationDegrees = 
     image.src = dataUrl;
   });
 }
+
+// Extraction des champs depuis le texte OCR.
 function extractFields(raw) {
-  const lines = String(raw || "").split(/\r?\n/).map(cleanText).filter(Boolean);
+  const lines = String(raw || "")
+    .split(/\r?\n/)
+    .map(cleanText)
+    .filter(Boolean);
   const upperLines = lines.map(line => line.toUpperCase());
   const all = upperLines.join(" ");
   let order = "";
@@ -227,34 +233,49 @@ function extractFields(raw) {
   }
   let client = "";
   const clientLine = lines.find(line =>
-    /\b\d{4,6}\b/.test(line) && /[A-Za-zÀ-ÿ]/.test(line) &&
-    !/\d{2}\s*CR\s*\d{4,8}/i.test(line) && !/815[BSE]?\d{5,}/i.test(line) &&
+    /\b\d{4,6}\b/.test(line) &&
+    /[A-Za-zÀ-ÿ]/.test(line) &&
+    !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
+    !/815[BSE]?\d{5,}/i.test(line) &&
     !/CHASSIS|GAS1|CAS1|ACS1|WAKO/i.test(line)
   );
   if (clientLine) {
-    client = clientLine.replace(/[·•|]/g, " ").replace(/\b\d{4,6}\b.*$/, "")
-      .replace(/\[[^\]]*\]/g, " ").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+    client = clientLine
+      .replace(/[·•|]/g, " ")
+      .replace(/\b\d{4,6}\b.*$/, "")
+      .replace(/\[[^\]]*\]/g, " ")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
   const compactClient = client.toUpperCase().replace(/[^A-ZÀ-Ÿ]/g, "");
-  if (compactClient === "DEBUGNOUXS" || compactClient === "DEBOUGNOUXS" || /DEB.*UGN.*UX.*S/.test(client.toUpperCase())) client = "DEBOUGNOUX S";
+  if (compactClient === "DEBUGNOUXS" || compactClient === "DEBOUGNOUXS" ||
+      /DEB.*UGN.*UX.*S/.test(client.toUpperCase())) {
+    client = "DEBOUGNOUX S";
+  }
   if (!client) {
     const candidate = lines.find(line =>
-      /[A-Za-zÀ-ÿ]{4,}/.test(line) && !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
+      /[A-Za-zÀ-ÿ]{4,}/.test(line) &&
+      !/\d{2}\s*CR\s*\d{4,8}/i.test(line) &&
       !/CHASSIS|GAS1|CAS1|ACS1|WAKO|815[BSE]?\d{5,}/i.test(line) &&
-      !/^\[?LI[- ]?\d+\]?$/i.test(line) && !/^\/?\d{3,}\W*$/.test(line)
+      !/^\[?LI[- ]?\d+\]?$/i.test(line) &&
+      !/^\/?\d{3,}\W*$/.test(line)
     );
     if (candidate) client = candidate.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   }
   let chassis = "";
   const gasMatch = all.match(/\b(GA|CA)S1\s*[-_ ]*\s*(\d{3})\b/i);
   if (gasMatch) chassis = "GAS1 " + gasMatch[2];
-  if (!chassis) for (const line of upperLines) {
-    const normalizedLine = line.replace(/[–—]/g, "-");
-    const match = normalizedLine.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
-    if (match) {
-      const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
-      chassis = "ACS1-S " + (suffix ? suffix[0].replace(/\s+/g, "") : "");
-      break;
+  if (!chassis) {
+    for (const line of upperLines) {
+      const normalizedLine = line.replace(/[–—]/g, "-");
+      const match = normalizedLine.match(/\bACS1\s*-\s*S\s*(P\s*)?\d{3,6}\b/i);
+      if (match) {
+        const suffix = match[0].match(/(P\s*)?\d{3,6}$/i);
+        const numberPart = suffix ? suffix[0].replace(/\s+/g, "") : "";
+        chassis = "ACS1-S " + numberPart;
+        break;
+      }
     }
   }
   return { lines, order, client, chassis };
@@ -266,6 +287,8 @@ function applyExtractedFields(raw) {
   if (fields.chassis) $("frameNo").value = fields.chassis;
   console.log("Champs extraits de l'étiquette WAKO :", fields);
 }
+
+// Recadrage : prépare une copie tournée ; la photo originale reste intacte.
 function makeRotatedCropSource(dataUrl, degrees) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -287,16 +310,11 @@ function makeRotatedCropSource(dataUrl, degrees) {
     image.src = dataUrl;
   });
 }
-
-// Convertit la rotation CSS en pixels réels avant l'enregistrement.
-async function preparePhotoForSave() {
-  if (!currentPhoto) return null;
-  if (photoRotation !== 0) return await makeRotatedCropSource(currentPhoto, photoRotation);
-  return currentPhoto;
-}
-
 function openCropper() {
-  if (!currentPhoto) { status("scanStatus", "Choisis ou capture d’abord une photo.", true); return; }
+  if (!currentPhoto) {
+    status("scanStatus", "Choisis ou capture d’abord une photo.", true);
+    return;
+  }
   if (!originalLabelPhoto) { originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType; }
   const modal = $("cropModal"), canvas = $("cropCanvas"), ctx = canvas.getContext("2d");
   status("scanStatus", photoRotation ? "Préparation de la photo tournée pour le cadrage…" : "Ouverture du cadrage…");
@@ -309,7 +327,9 @@ function openCropper() {
       canvas.width = Math.max(1, Math.round(cropImage.naturalWidth * cropScale));
       canvas.height = Math.max(1, Math.round(cropImage.naturalHeight * cropScale));
       ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
-      cropRect = null; drawCropOverlay(); modal.style.display = "flex";
+      cropRect = null;
+      drawCropOverlay();
+      modal.style.display = "flex";
       status("scanStatus", "La photo garde son orientation. Trace le cadre ou utilise le cadrage automatique.");
     };
     cropImage.onerror = () => status("scanStatus", "Impossible d’ouvrir cette photo pour le recadrage.", true);
@@ -344,9 +364,10 @@ function autoDetectLabel() {
         if(rr>205&&gg>205&&bb>200&&Math.max(rr,gg,bb)-Math.min(rr,gg,bb)<45) stack.push(ni);
       }
     }
-    const bw=maxX-minX+1,bh=maxY-minY+1,area=bw*bh,fraction=area/(w*h),aspect=bw/bh;
+    const bw=maxX-minX+1,bh=maxY-minY+1,area=bw*bh, fraction=area/(w*h), aspect=bw/bh;
     if(fraction<0.012||fraction>0.72||count<area*0.45)continue;
-    const rectangularity=count/area, score=count*rectangularity*(aspect>0.08&&aspect<8?1:0.25);
+    const rectangularity=count/area;
+    const score=count * rectangularity * (aspect>0.08&&aspect<8 ? 1 : 0.25);
     if(score>bestScore){bestScore=score;best={x:minX,y:minY,w:bw,h:bh};}
   }
   if(best){
@@ -354,7 +375,8 @@ function autoDetectLabel() {
     const padX=Math.max(3,best.w*0.035), padY=Math.max(3,best.h*0.035);
     const x=Math.max(0,best.x-padX), y=Math.max(0,best.y-padY);
     const right=Math.min(w,best.x+best.w+padX), bottom=Math.min(h,best.y+best.h+padY);
-    cropRect={x:x*sx,y:y*sy,w:(right-x)*sx,h:(bottom-y)*sy}; drawCropOverlay();
+    cropRect={x:x*sx,y:y*sy,w:(right-x)*sx,h:(bottom-y)*sy};
+    drawCropOverlay();
     status("scanStatus","Cadrage automatique proposé. Vérifie les bords et ajuste au doigt si nécessaire.");
   } else {
     cropRect={x:$("cropCanvas").width*0.12,y:$("cropCanvas").height*0.12,w:$("cropCanvas").width*0.76,h:$("cropCanvas").height*0.76};
@@ -366,254 +388,370 @@ function adjustCropZoom(factor) {
   const canvas=$("cropCanvas");
   if(!cropRect) cropRect={x:canvas.width*.12,y:canvas.height*.12,w:canvas.width*.76,h:canvas.height*.76};
   const cx=cropRect.x+cropRect.w/2, cy=cropRect.y+cropRect.h/2;
-  const nw=Math.max(24,Math.min(canvas.width,cropRect.w*factor)), nh=Math.max(24,Math.min(canvas.height,cropRect.h*factor));
+  const nw=Math.max(24,Math.min(canvas.width,cropRect.w*factor));
+  const nh=Math.max(24,Math.min(canvas.height,cropRect.h*factor));
   cropRect={x:Math.max(0,Math.min(canvas.width-nw,cx-nw/2)),y:Math.max(0,Math.min(canvas.height-nh,cy-nh/2)),w:nw,h:nh};
   drawCropOverlay();
 }
 function drawCropOverlay() {
   if (!cropImage) return;
   const canvas = $("cropCanvas"), ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
   if (!cropRect) return;
-  ctx.save(); ctx.fillStyle = "rgba(10,20,40,.45)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.clearRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h); ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "rgba(37,99,235,.10)"; ctx.fillRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
-  ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 3; ctx.setLineDash([8, 4]); ctx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h); ctx.setLineDash([]);
-  const r = 8, corners = [[cropRect.x,cropRect.y],[cropRect.x+cropRect.w,cropRect.y],[cropRect.x,cropRect.y+cropRect.h],[cropRect.x+cropRect.w,cropRect.y+cropRect.h]];
+  ctx.save();
+  ctx.fillStyle = "rgba(10,20,40,.45)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(37,99,235,.10)";
+  ctx.fillRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 3; ctx.setLineDash([8, 4]);
+  ctx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h); ctx.setLineDash([]);
+  const r = 8;
+  const corners = [[cropRect.x,cropRect.y],[cropRect.x+cropRect.w,cropRect.y],[cropRect.x,cropRect.y+cropRect.h],[cropRect.x+cropRect.w,cropRect.y+cropRect.h]];
   ctx.fillStyle = "#fff"; ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2;
   for (const [x,y] of corners) { ctx.beginPath(); ctx.rect(x-r,y-r,r*2,r*2); ctx.fill(); ctx.stroke(); }
   ctx.restore();
 }
 function cropPointerPosition(event) {
   const canvas = $("cropCanvas"), bounds = canvas.getBoundingClientRect();
-  return { x: Math.max(0, Math.min(canvas.width, (event.clientX-bounds.left)*canvas.width/bounds.width)), y: Math.max(0, Math.min(canvas.height, (event.clientY-bounds.top)*canvas.height/bounds.height)) };
+  return {
+    x: Math.max(0, Math.min(canvas.width, (event.clientX - bounds.left) * canvas.width / bounds.width)),
+    y: Math.max(0, Math.min(canvas.height, (event.clientY - bounds.top) * canvas.height / bounds.height))
+  };
 }
 function cropHitTest(p) {
   if (!cropRect) return { mode: "draw", handle: null };
-  const hit=22, corners=[{name:"nw",x:cropRect.x,y:cropRect.y},{name:"ne",x:cropRect.x+cropRect.w,y:cropRect.y},{name:"sw",x:cropRect.x,y:cropRect.y+cropRect.h},{name:"se",x:cropRect.x+cropRect.w,y:cropRect.y+cropRect.h}];
-  for(const c of corners) if(Math.abs(p.x-c.x)<=hit&&Math.abs(p.y-c.y)<=hit)return {mode:"resize",handle:c.name};
-  if(p.x>=cropRect.x&&p.x<=cropRect.x+cropRect.w&&p.y>=cropRect.y&&p.y<=cropRect.y+cropRect.h)return {mode:"move",handle:null};
+  const hit = 22;
+  const corners = [
+    { name: "nw", x: cropRect.x, y: cropRect.y },
+    { name: "ne", x: cropRect.x + cropRect.w, y: cropRect.y },
+    { name: "sw", x: cropRect.x, y: cropRect.y + cropRect.h },
+    { name: "se", x: cropRect.x + cropRect.w, y: cropRect.y + cropRect.h }
+  ];
+  for (const c of corners) if (Math.abs(p.x-c.x)<=hit && Math.abs(p.y-c.y)<=hit) return {mode:"resize",handle:c.name};
+  if (p.x>=cropRect.x && p.x<=cropRect.x+cropRect.w && p.y>=cropRect.y && p.y<=cropRect.y+cropRect.h) return {mode:"move",handle:null};
   return {mode:"draw",handle:null};
 }
 function startCropDrag(event) {
-  event.preventDefault(); const p=cropPointerPosition(event),hit=cropHitTest(p);
-  cropDragMode=hit.mode; cropResizeHandle=hit.handle; cropDragStart={x:p.x,y:p.y}; cropRectStart=cropRect?{...cropRect}:null;
-  if(cropDragMode==="draw")cropRect={x:p.x,y:p.y,w:0,h:0};
-  cropDrag={x:p.x,y:p.y}; $("cropCanvas").setPointerCapture?.(event.pointerId); drawCropOverlay();
+  event.preventDefault();
+  const p = cropPointerPosition(event), hit = cropHitTest(p);
+  cropDragMode = hit.mode; cropResizeHandle = hit.handle;
+  cropDragStart = {x:p.x,y:p.y}; cropRectStart = cropRect ? {...cropRect} : null;
+  if (cropDragMode === "draw") cropRect = {x:p.x,y:p.y,w:0,h:0};
+  cropDrag = {x:p.x,y:p.y};
+  $("cropCanvas").setPointerCapture?.(event.pointerId);
+  drawCropOverlay();
 }
 function moveCropDrag(event) {
-  if(!cropDrag)return; event.preventDefault();
-  const p=cropPointerPosition(event),dx=p.x-cropDragStart.x,dy=p.y-cropDragStart.y;
-  if(cropDragMode==="draw")cropRect={x:Math.min(cropDragStart.x,p.x),y:Math.min(cropDragStart.y,p.y),w:Math.abs(dx),h:Math.abs(dy)};
-  else if(cropDragMode==="move"&&cropRectStart){
+  if (!cropDrag) return;
+  event.preventDefault();
+  const p = cropPointerPosition(event), dx=p.x-cropDragStart.x, dy=p.y-cropDragStart.y;
+  if (cropDragMode === "draw") {
+    cropRect={x:Math.min(cropDragStart.x,p.x),y:Math.min(cropDragStart.y,p.y),w:Math.abs(dx),h:Math.abs(dy)};
+  } else if (cropDragMode === "move" && cropRectStart) {
     const w=cropRectStart.w,h=cropRectStart.h,canvas=$("cropCanvas");
     cropRect={x:Math.max(0,Math.min(canvas.width-w,cropRectStart.x+dx)),y:Math.max(0,Math.min(canvas.height-h,cropRectStart.y+dy)),w,h};
-  } else if(cropDragMode==="resize"&&cropRectStart){
-    const c=cropRectStart,min=12,canvas=$("cropCanvas"); let left=c.x,right=c.x+c.w,top=c.y,bottom=c.y+c.h;
-    if(cropResizeHandle.includes("w"))left=Math.max(0,Math.min(right-min,c.x+dx));
-    if(cropResizeHandle.includes("e"))right=Math.min(canvas.width,Math.max(left+min,c.x+c.w+dx));
-    if(cropResizeHandle.includes("n"))top=Math.max(0,Math.min(bottom-min,c.y+dy));
-    if(cropResizeHandle.includes("s"))bottom=Math.min(canvas.height,Math.max(top+min,c.y+c.h+dy));
+  } else if (cropDragMode === "resize" && cropRectStart) {
+    const c=cropRectStart, min=12, canvas=$("cropCanvas");
+    let left=c.x, right=c.x+c.w, top=c.y, bottom=c.y+c.h;
+    if(cropResizeHandle.includes("w")) left=Math.max(0,Math.min(right-min,c.x+dx));
+    if(cropResizeHandle.includes("e")) right=Math.min(canvas.width,Math.max(left+min,c.x+c.w+dx));
+    if(cropResizeHandle.includes("n")) top=Math.max(0,Math.min(bottom-min,c.y+dy));
+    if(cropResizeHandle.includes("s")) bottom=Math.min(canvas.height,Math.max(top+min,c.y+c.h+dy));
     cropRect={x:left,y:top,w:right-left,h:bottom-top};
   }
   drawCropOverlay();
 }
-function endCropDrag(){cropDrag=null;cropDragMode=null;cropResizeHandle=null;cropDragStart=null;cropRectStart=null;}
-function closeCropper(){$("cropModal").style.display="none";cropImage=null;cropRect=null;cropDrag=null;}
+function endCropDrag() { cropDrag=null; cropDragMode=null; cropResizeHandle=null; cropDragStart=null; cropRectStart=null; }
+function closeCropper() {
+  $("cropModal").style.display = "none";
+  cropImage = null; cropRect = null; cropDrag = null;
+}
 function applyCrop() {
-  if(!cropImage||!cropRect||cropRect.w<12||cropRect.h<12){status("scanStatus","Trace d’abord un cadre suffisamment grand autour de l’étiquette.",true);return;}
-  const scaleX=cropImage.naturalWidth/$("cropCanvas").width,scaleY=cropImage.naturalHeight/$("cropCanvas").height;
-  const x=Math.round(cropRect.x*scaleX),y=Math.round(cropRect.y*scaleY),w=Math.round(cropRect.w*scaleX),h=Math.round(cropRect.h*scaleY);
-  const out=document.createElement("canvas");out.width=w;out.height=h;
-  out.getContext("2d").drawImage(cropImage,x,y,w,h,0,0,w,h);
-  const cropped=out.toDataURL("image/jpeg",.94);
-  setPhoto(cropped,"image/jpeg");
-  // L'image recadrée contient déjà la rotation : elle devient l'originale de référence.
-  originalLabelPhoto=cropped; originalLabelPhotoType="image/jpeg"; photoRotation=0;
-  $("preview").style.setProperty("--preview-rotation","0deg");
-  closeCropper();setOcrText("Photo recadrée. Appuie sur « Lire le texte de la photo ».");
-  status("scanStatus","Recadrage appliqué. La photo recadrée et tournée sera conservée dans la fiche.");
+  if (!cropImage || !cropRect || cropRect.w < 12 || cropRect.h < 12) {
+    status("scanStatus", "Trace d’abord un cadre suffisamment grand autour de l’étiquette.", true);
+    return;
+  }
+  const scaleX = cropImage.naturalWidth / $("cropCanvas").width;
+  const scaleY = cropImage.naturalHeight / $("cropCanvas").height;
+  const x = Math.round(cropRect.x * scaleX), y = Math.round(cropRect.y * scaleY);
+  const w = Math.round(cropRect.w * scaleX), h = Math.round(cropRect.h * scaleY);
+  const out = document.createElement("canvas"); out.width = w; out.height = h;
+  out.getContext("2d").drawImage(cropImage, x, y, w, h, 0, 0, w, h);
+  const cropped = out.toDataURL("image/jpeg", .94);
+  // Le recadrage est désormais l'image réelle utilisée et enregistrée.
+  setPhoto(cropped, "image/jpeg");
+  originalLabelPhoto = cropped;
+  originalLabelPhotoType = "image/jpeg";
+  closeCropper();
+  setOcrText("Photo recadrée. Appuie sur « Lire le texte de la photo ».");
+  status("scanStatus", "Recadrage appliqué et intégré à la photo enregistrée.");
 }
 function beginOcrEdit() {
-  if(isReading)return;const visibleText=$("ocrResult").textContent.trim();
-  $("ocrEditor").value=visibleText===OCR_PLACEHOLDER?"":visibleText;ocrEditOpen=true;
-  $("ocrResult").style.display="none";$("ocrEditor").style.display="block";$("editOcrBtn").style.display="none";
-  $("saveOcrEditBtn").style.display="";$("cancelOcrEditBtn").style.display="";$("ocrEditor").focus();
+  if (isReading) return;
+  const visibleText = $("ocrResult").textContent.trim();
+  $("ocrEditor").value = visibleText === OCR_PLACEHOLDER ? "" : visibleText;
+  ocrEditOpen = true;
+  $("ocrResult").style.display = "none"; $("ocrEditor").style.display = "block";
+  $("editOcrBtn").style.display = "none"; $("saveOcrEditBtn").style.display = ""; $("cancelOcrEditBtn").style.display = "";
+  $("ocrEditor").focus();
 }
 function saveOcrEdit() {
-  if(!ocrEditOpen)return;const corrected=$("ocrEditor").value.trim();setOcrText(corrected);closeOcrEditor();
-  if(corrected)applyExtractedFields(corrected);status("scanStatus","Texte brut corrigé. Les corrections seront enregistrées avec la fiche.");
+  if (!ocrEditOpen) return;
+  const corrected = $("ocrEditor").value.trim();
+  setOcrText(corrected); closeOcrEditor();
+  if (corrected) applyExtractedFields(corrected);
+  status("scanStatus", "Texte brut corrigé. Les corrections seront enregistrées avec la fiche.");
 }
-function cancelOcrEdit(){$("ocrEditor").value="";closeOcrEditor();}
+function cancelOcrEdit() { $("ocrEditor").value = ""; closeOcrEditor(); }
 
 async function runOCR() {
-  if(isReading)return;
-  if(!currentPhoto){status("scanStatus","Choisis d’abord une photo de l’étiquette.",true);return;}
-  const savedPhoto=currentPhoto,savedPhotoType=currentPhotoType;isReading=true;$("readLabelBtn").disabled=true;
-  try{
-    $("preview").src=savedPhoto;$("preview").style.display="block";status("scanStatus","Chargement du moteur OCR…");
-    if(!ocrInstance)ocrInstance=await PaddleOCR.create({lang:"en",ocrVersion:"PP-OCRv5",ortOptions:{backend:"wasm",wasmPaths:"https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/"}});
-    status("scanStatus","Préparation d’une copie légère de la photo…");
+  if (isReading) return;
+  if (!currentPhoto) { status("scanStatus", "Choisis d’abord une photo de l’étiquette.", true); return; }
+  const savedPhoto = currentPhoto, savedPhotoType = currentPhotoType;
+  isReading = true; $("readLabelBtn").disabled = true;
+  try {
+    $("preview").src = savedPhoto; $("preview").style.display = "block";
+    status("scanStatus", "Chargement du moteur OCR…");
+    if (!ocrInstance) {
+      ocrInstance = await PaddleOCR.create({
+        lang: "en", ocrVersion: "PP-OCRv5",
+        ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
+      });
+    }
+    status("scanStatus", "Préparation d’une copie légère de la photo…");
     setOcrText("Préparation de la photo pour l’analyse… l’original est conservé.");
-    const blob=await makeOCRBlob(savedPhoto,1500,.82,photoRotation);
-    status("scanStatus","Analyse OCR en cours sur la copie allégée…");setOcrText("Analyse en cours… la photo originale est conservée.");
-    const results=await ocrInstance.predict(blob);console.log("Résultat brut PaddleOCR :",results);
-    const ocrLines=(Array.isArray(results)?results:[results]).flatMap(result=>(result?.items||[]).map(item=>cleanText(item?.text||""))).filter(Boolean);
-    const filteredLines=[];
-    for(let i=0;i<ocrLines.length;i++){
-      const token=ocrLines[i].toUpperCase().replace(/[^A-Z]/g,"");if(token==="WAKO")continue;
-      if(token==="W"&&ocrLines.slice(i,i+4).map(line=>line.toUpperCase().replace(/[^A-Z]/g,"")).join("")==="WAKO"){i+=3;continue;}
+    const blob = await makeOCRBlob(savedPhoto, 1500, 0.82, photoRotation);
+    status("scanStatus", "Analyse OCR en cours sur la copie allégée…");
+    setOcrText("Analyse en cours… la photo originale est conservée.");
+    const results = await ocrInstance.predict(blob);
+    console.log("Résultat brut PaddleOCR :", results);
+    const ocrLines = (Array.isArray(results) ? results : [results])
+      .flatMap(result => (result?.items || []).map(item => cleanText(item?.text || "")))
+      .filter(Boolean);
+    const filteredLines = [];
+    for (let i = 0; i < ocrLines.length; i++) {
+      const token = ocrLines[i].toUpperCase().replace(/[^A-Z]/g, "");
+      if (token === "WAKO") continue;
+      if (token === "W" && ocrLines.slice(i, i + 4).map(line => line.toUpperCase().replace(/[^A-Z]/g, "")).join("") === "WAKO") {
+        i += 3; continue;
+      }
       filteredLines.push(ocrLines[i]);
     }
-    const raw=filteredLines.join("\n");setOcrText(raw||"Aucun texte détecté. Essaie une photo plus nette, prise de face et bien éclairée.");
-    if(raw)applyExtractedFields(raw);
-    status("scanStatus",raw?"Lecture terminée. Vérifie les champs avant d’enregistrer.":"Aucun texte récupéré. Tu peux réessayer.",!raw);
-  }catch(e){
-    console.error("Erreur PaddleOCR",e);const errorMessage=e?.message||String(e);
-    setOcrText("Erreur pendant la lecture : "+errorMessage);status("scanStatus","Erreur OCR : "+errorMessage,true);
-  }finally{
-    currentPhoto=savedPhoto;currentPhotoType=savedPhotoType;
-    if(savedPhoto){$("preview").setAttribute("src",savedPhoto);$("preview").style.display="block";}
-    isReading=false;$("readLabelBtn").disabled=false;
+    const raw = filteredLines.join("\n");
+    setOcrText(raw || "Aucun texte détecté. Essaie une photo plus nette, prise de face et bien éclairée.");
+    if (raw) applyExtractedFields(raw);
+    status("scanStatus", raw ? "Lecture terminée. Vérifie les champs avant d’enregistrer." : "Aucun texte récupéré. Tu peux réessayer.", !raw);
+  } catch (e) {
+    console.error("Erreur PaddleOCR", e);
+    const errorMessage = e?.message || String(e);
+    setOcrText("Erreur pendant la lecture : " + errorMessage);
+    status("scanStatus", "Erreur OCR : " + errorMessage, true);
+  } finally {
+    currentPhoto = savedPhoto; currentPhotoType = savedPhotoType;
+    if (savedPhoto) { $("preview").setAttribute("src", savedPhoto); $("preview").style.display = "block"; }
+    isReading = false; $("readLabelBtn").disabled = false;
   }
 }
 
-$("editOcrBtn").addEventListener("click",beginOcrEdit);
-$("saveOcrEditBtn").addEventListener("click",saveOcrEdit);
-$("cancelOcrEditBtn").addEventListener("click",cancelOcrEdit);
+$("editOcrBtn").addEventListener("click", beginOcrEdit);
+$("saveOcrEditBtn").addEventListener("click", saveOcrEdit);
+$("cancelOcrEditBtn").addEventListener("click", cancelOcrEdit);
 
-const photoInput=$("cameraInput"),choosePhotoBtn=$("choosePhotoBtn");
-if(choosePhotoBtn)choosePhotoBtn.addEventListener("click",()=>photoInput.click());
-photoInput.addEventListener("change",async e=>{
-  const input=e.target,file=input.files&&input.files[0];if(!file)return;
-  try{
-    if(!file.type.startsWith("image/"))throw new Error("Le fichier sélectionné n'est pas une image.");
-    status("scanStatus","Chargement de la photo…");const data=await dataURL(file);
-    await new Promise((resolve,reject)=>{const img=new Image();img.onload=resolve;img.onerror=()=>reject(new Error("Impossible d'ouvrir cette image sur le téléphone."));img.src=data;});
-    setPhoto(data,file.type||"image/jpeg");originalLabelPhoto=data;originalLabelPhotoType=file.type||"image/jpeg";
-    $("clientName").value="";$("orderNo").value="";$("frameNo").value="";closeOcrEditor();
-    setOcrText("Photo chargée. Appuie sur « Lire le texte de la photo ».");status("scanStatus","Photo chargée avec succès. Tu peux la cadrer ou lancer la lecture OCR.");
-  }catch(err){console.error("Erreur de chargement de la photo :",err);status("scanStatus","Impossible de charger la photo : "+(err.message||err),true);}
-  finally{input.value="";}
-});
-$("clearPhotoBtn").addEventListener("click",()=>{
-  setPhoto(null);originalLabelPhoto=null;originalLabelPhotoType="image/jpeg";$("cameraInput").value="";setOcrText("");closeOcrEditor();
-  status("scanStatus","Photo retirée de la fiche en cours.");
-});
-function rotatePreview(degrees){
-  if(!currentPhoto){status("scanStatus","Choisis ou capture d’abord une photo.",true);return;}
-  photoRotation=(photoRotation+degrees+360)%360;
-  $("preview").style.setProperty("--preview-rotation",`${photoRotation}deg`);
-  status("scanStatus",`Orientation de lecture : ${photoRotation}°. La photo originale reste inchangée.`);
+// Correctif sélection photo : fonctionne avec le label for="cameraInput" existant dans le HTML.
+// Un bouton #choosePhotoBtn facultatif est également pris en charge si tu l'as ajouté.
+const photoInput = $("cameraInput");
+const choosePhotoBtn = $("choosePhotoBtn");
+if (choosePhotoBtn) {
+  choosePhotoBtn.addEventListener("click", () => photoInput.click());
 }
-$("rotateLeftBtn").addEventListener("click",()=>rotatePreview(-90));
-$("rotateRightBtn").addEventListener("click",()=>rotatePreview(90));
-$("cropBtn").addEventListener("click",openCropper);
-$("cropCancelBtn").addEventListener("click",closeCropper);
-$("cropApplyBtn").addEventListener("click",applyCrop);
-$("cropCanvas").addEventListener("pointerdown",startCropDrag);
-$("cropCanvas").addEventListener("pointermove",moveCropDrag);
-$("cropCanvas").addEventListener("pointerup",endCropDrag);
-$("cropCanvas").addEventListener("pointercancel",endCropDrag);
-$("autoCropBtn").addEventListener("click",autoDetectLabel);
-$("zoomInBtn").addEventListener("click",()=>adjustCropZoom(.88));
-$("zoomOutBtn").addEventListener("click",()=>adjustCropZoom(1.12));
-$("readLabelBtn").addEventListener("click",runOCR);
-$("copyOcrBtn").addEventListener("click",async()=>{
-  const text=(ocrEditOpen?$("ocrEditor").value:$("ocrResult").textContent).trim();
-  if(!text||text===OCR_PLACEHOLDER){status("scanStatus","Aucun texte à copier.",true);return;}
-  try{await navigator.clipboard.writeText(text);status("scanStatus","Texte brut copié. Tu peux le coller où tu veux.");}
-  catch{
-    const range=document.createRange();range.selectNodeContents(ocrEditOpen?$("ocrEditor"):$("ocrResult"));
-    const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
-    status("scanStatus","Sélection du texte effectuée. Appuie longuement puis choisis Copier.");
+photoInput.addEventListener("change", async (e) => {
+  const input = e.target;
+  const file = input.files && input.files[0];
+  if (!file) return;
+  try {
+    if (!file.type.startsWith("image/")) {
+      throw new Error("Le fichier sélectionné n'est pas une image.");
+    }
+    status("scanStatus", "Chargement de la photo…");
+    const data = await dataURL(file);
+    await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("Impossible d'ouvrir cette image sur le téléphone."));
+      img.src = data;
+    });
+    setPhoto(data, file.type || "image/jpeg");
+    originalLabelPhoto = data;
+    originalLabelPhotoType = file.type || "image/jpeg";
+    $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = "";
+    closeOcrEditor();
+    setOcrText("Photo chargée. Appuie sur « Lire le texte de la photo ».");
+    status("scanStatus", "Photo chargée avec succès. Tu peux la cadrer ou lancer la lecture OCR.");
+  } catch (err) {
+    console.error("Erreur de chargement de la photo :", err);
+    status("scanStatus", "Impossible de charger la photo : " + (err.message || err), true);
+  } finally {
+    // Permet de sélectionner à nouveau la même photo sur iOS.
+    input.value = "";
   }
 });
-$("barcodeBtn").addEventListener("click",async()=>{
-  if(!currentPhoto){status("scanStatus","Choisis d’abord une photo.",true);return;}
-  try{
-    const mod=await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");
-    const reader=new mod.BrowserMultiFormatReader(),result=await reader.decodeFromImageUrl(currentPhoto);
-    $("frameNo").value=result.getText();status("scanStatus","Code-barres lu : "+result.getText()+". Vérifie-le avant d’enregistrer.");
-  }catch(e){status("scanStatus","Code-barres non détecté sur cette photo. Tu peux utiliser la lecture du texte.",true);}
+
+$("clearPhotoBtn").addEventListener("click", () => {
+  setPhoto(null); originalLabelPhoto = null; originalLabelPhotoType = "image/jpeg";
+  $("cameraInput").value = ""; setOcrText(""); closeOcrEditor();
+  status("scanStatus", "Photo retirée de la fiche en cours.");
 });
-$("startScanBtn").addEventListener("click",async()=>{
+async function rotatePreview(degrees) {
+  if (!currentPhoto) { status("scanStatus", "Choisis ou capture d’abord une photo.", true); return; }
+  try {
+    // Rotation réellement dessinée dans une nouvelle image, pas seulement en CSS.
+    // Ainsi l'orientation reste correcte après enregistrement et rechargement.
+    status("scanStatus", "Rotation de la photo en cours…");
+    const rotatedPhoto = await makeRotatedCropSource(currentPhoto, degrees);
+    setPhoto(rotatedPhoto, "image/jpeg");
+    originalLabelPhoto = rotatedPhoto;
+    originalLabelPhotoType = "image/jpeg";
+    photoRotation = 0;
+    status("scanStatus", "Rotation intégrée à la photo. Elle restera dans ce sens après l’enregistrement.");
+  } catch (error) {
+    console.error("Erreur de rotation de la photo :", error);
+    status("scanStatus", "Impossible de tourner la photo : " + (error.message || error), true);
+  }
+}
+$("rotateLeftBtn").addEventListener("click", () => rotatePreview(-90));
+$("rotateRightBtn").addEventListener("click", () => rotatePreview(90));
+$("cropBtn").addEventListener("click", openCropper);
+$("cropCancelBtn").addEventListener("click", closeCropper);
+$("cropApplyBtn").addEventListener("click", applyCrop);
+$("cropCanvas").addEventListener("pointerdown", startCropDrag);
+$("cropCanvas").addEventListener("pointermove", moveCropDrag);
+$("cropCanvas").addEventListener("pointerup", endCropDrag);
+$("cropCanvas").addEventListener("pointercancel", endCropDrag);
+$("autoCropBtn").addEventListener("click", autoDetectLabel);
+$("zoomInBtn").addEventListener("click", () => adjustCropZoom(0.88));
+$("zoomOutBtn").addEventListener("click", () => adjustCropZoom(1.12));
+$("readLabelBtn").addEventListener("click", runOCR);
+$("copyOcrBtn").addEventListener("click", async () => {
+  const text = (ocrEditOpen ? $("ocrEditor").value : $("ocrResult").textContent).trim();
+  if (!text || text === OCR_PLACEHOLDER) { status("scanStatus", "Aucun texte à copier.", true); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    status("scanStatus", "Texte brut copié. Tu peux le coller où tu veux.");
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(ocrEditOpen ? $("ocrEditor") : $("ocrResult"));
+    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    status("scanStatus", "Sélection du texte effectuée. Appuie longuement puis choisis Copier.");
+  }
+});
+$("barcodeBtn").addEventListener("click", async () => {
+  if (!currentPhoto) { status("scanStatus", "Choisis d’abord une photo.", true); return; }
+  try {
+    const mod = await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");
+    const reader = new mod.BrowserMultiFormatReader();
+    const result = await reader.decodeFromImageUrl(currentPhoto);
+    $("frameNo").value = result.getText();
+    status("scanStatus", "Code-barres lu : " + result.getText() + ". Vérifie-le avant d’enregistrer.");
+  } catch (e) { status("scanStatus", "Code-barres non détecté sur cette photo. Tu peux utiliser la lecture du texte.", true); }
+});
+$("startScanBtn").addEventListener("click", async () => {
   stopCamera();
-  try{
-    liveStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});
-    $("liveVideo").srcObject=liveStream;$("liveVideo").style.display="block";await $("liveVideo").play();
-    $("captureBtn").disabled=false;$("stopScanBtn").disabled=false;status("scanStatus","Caméra ouverte. Capture l’étiquette pour la lire.");
-  }catch(e){stopCamera();status("scanStatus","Impossible d’ouvrir la caméra. Vérifie l’autorisation et utilise le site en HTTPS.",true);}
+  try {
+    liveStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+    $("liveVideo").srcObject = liveStream; $("liveVideo").style.display = "block"; await $("liveVideo").play();
+    $("captureBtn").disabled = false; $("stopScanBtn").disabled = false;
+    status("scanStatus", "Caméra ouverte. Capture l’étiquette pour la lire.");
+  } catch (e) {
+    stopCamera();
+    status("scanStatus", "Impossible d’ouvrir la caméra. Vérifie l’autorisation et utilise le site en HTTPS.", true);
+  }
 });
-$("captureBtn").addEventListener("click",async()=>{
-  const video=$("liveVideo");if(!video.videoWidth){status("scanStatus","Attends que l’image de la caméra apparaisse.",true);return;}
-  const canvas=document.createElement("canvas");canvas.width=video.videoWidth;canvas.height=video.videoHeight;
-  canvas.getContext("2d").drawImage(video,0,0);setPhoto(canvas.toDataURL("image/jpeg",.92),"image/jpeg");
-  originalLabelPhoto=currentPhoto;originalLabelPhotoType=currentPhotoType;stopCamera();
+$("captureBtn").addEventListener("click", async () => {
+  const video = $("liveVideo");
+  if (!video.videoWidth) { status("scanStatus", "Attends que l’image de la caméra apparaisse.", true); return; }
+  const canvas = document.createElement("canvas"); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  setPhoto(canvas.toDataURL("image/jpeg", .92), "image/jpeg");
+  originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType; stopCamera();
   setOcrText("Photo capturée. Appuie sur « Lire le texte de la photo ».");
-  status("scanStatus","Photo capturée. Appuie sur « Lire le texte de la photo » pour lancer l’analyse.");
+  status("scanStatus", "Photo capturée. Appuie sur « Lire le texte de la photo » pour lancer l’analyse.");
 });
-$("stopScanBtn").addEventListener("click",()=>{stopCamera();status("scanStatus","Caméra fermée.");});
-$("saveBtn").addEventListener("click",async()=>{
-  if(ocrEditOpen)saveOcrEdit();
-  const orderNo=$("orderNo").value.trim(),frameNo=$("frameNo").value.trim();
-  if(!orderNo){status("formStatus","Le numéro de commande est obligatoire.",true);$("orderNo").focus();return;}
-  if(!frameNo){status("formStatus","Le numéro du châssis est obligatoire.",true);$("frameNo").focus();return;}
-  const now=Date.now();
-  try{
-    const displayedRaw=$("ocrResult").textContent.trim();
-    const isInstruction=displayedRaw===OCR_PLACEHOLDER||displayedRaw.startsWith("Photo chargée.")||displayedRaw.startsWith("Photo capturée.")||
-      displayedRaw.startsWith("Photo recadrée.")||displayedRaw.startsWith("Préparation de la photo")||displayedRaw.startsWith("Analyse en cours")||
-      displayedRaw.startsWith("Erreur pendant la lecture :")||displayedRaw.startsWith("Aucun texte détecté.");
-    const ocrText=isInstruction?"":displayedRaw;
-    // Sauvegarde la rotation réelle, pas uniquement la transformation CSS de l'aperçu.
-    const photoToSave=await preparePhotoForSave();
-    const record={
-      clientName:$("clientName").value.trim(),orderNo,frameNo,operations:getOps(),notes:$("notes").value.trim(),ocrText,
-      photo:photoToSave,photoType:photoToSave?"image/jpeg":currentPhotoType,updatedAt:now
+$("stopScanBtn").addEventListener("click", () => { stopCamera(); status("scanStatus", "Caméra fermée."); });
+$("saveBtn").addEventListener("click", async () => {
+  if (ocrEditOpen) saveOcrEdit();
+  const orderNo = $("orderNo").value.trim(), frameNo = $("frameNo").value.trim();
+  if (!orderNo) { status("formStatus", "Le numéro de commande est obligatoire.", true); $("orderNo").focus(); return; }
+  if (!frameNo) { status("formStatus", "Le numéro du châssis est obligatoire.", true); $("frameNo").focus(); return; }
+  const now = Date.now();
+  try {
+    const displayedRaw = $("ocrResult").textContent.trim();
+    const isInstruction = displayedRaw === OCR_PLACEHOLDER
+      || displayedRaw.startsWith("Photo chargée.")
+      || displayedRaw.startsWith("Photo capturée.")
+      || displayedRaw.startsWith("Photo recadrée.")
+      || displayedRaw.startsWith("Préparation de la photo")
+      || displayedRaw.startsWith("Analyse en cours")
+      || displayedRaw.startsWith("Erreur pendant la lecture :")
+      || displayedRaw.startsWith("Aucun texte détecté.");
+    const ocrText = isInstruction ? "" : displayedRaw;
+    const record = {
+      clientName: $("clientName").value.trim(), orderNo, frameNo,
+      operations: getOps(), notes: $("notes").value.trim(), ocrText,
+      photo: currentPhoto || originalLabelPhoto,
+      photoType: currentPhoto ? currentPhotoType : (originalLabelPhotoType || currentPhotoType),
+      updatedAt: now
     };
-    if(editingId){record.id=editingId;const old=await getRecord(editingId);record.createdAt=old?.createdAt||now;}
-    else record.createdAt=now;
-    editingId=await saveRecord(record);
-    if(photoToSave){
-      setPhoto(photoToSave,"image/jpeg");originalLabelPhoto=photoToSave;originalLabelPhotoType="image/jpeg";
-    }
-    $("saveBtn").textContent="💾 Mettre à jour la fiche";
-    status("formStatus","Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
+    if (editingId) {
+      record.id = editingId;
+      const old = await getRecord(editingId);
+      record.createdAt = old?.createdAt || now;
+    } else record.createdAt = now;
+    editingId = await saveRecord(record);
+    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
     await refreshRecords();
-  }catch(e){status("formStatus","Erreur d’enregistrement : "+e.message,true);}
+  } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
 });
-$("resetBtn").addEventListener("click",()=>{if(confirm("Effacer le formulaire et préparer une nouvelle fiche ?"))resetForm();});
-$("searchBox").addEventListener("input",refreshRecords);
-$("exportBtn").addEventListener("click",async()=>{
-  try{
-    const records=await allRecords();
-    const blob=new Blob([JSON.stringify({app:"Scan Châssis",version:1,exportedAt:new Date().toISOString(),records})],{type:"application/json"});
-    const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;
-    a.download=`scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
-    status("backupStatus",`${records.length} fiche(s) exportée(s), photos et textes bruts inclus.`);
-  }catch(e){status("backupStatus","Échec de l’export : "+e.message,true);}
+$("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
+$("searchBox").addEventListener("input", refreshRecords);
+$("exportBtn").addEventListener("click", async () => {
+  try {
+    const records = await allRecords();
+    const blob = new Blob([JSON.stringify({ app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records })], { type: "application/json" });
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = `scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus.`);
+  } catch (e) { status("backupStatus", "Échec de l’export : " + e.message, true); }
 });
-$("importInput").addEventListener("change",async e=>{
-  const file=e.target.files?.[0];if(!file)return;
-  if(!confirm("Importer cette sauvegarde ? Les fiches existantes seront conservées.")){e.target.value="";return;}
-  try{
-    const parsed=JSON.parse(await file.text());if(!Array.isArray(parsed.records))throw new Error("Format de sauvegarde invalide.");
-    let added=0,skipped=0;
-    for(const item of parsed.records){
-      if(!item?.orderNo||!item?.frameNo){skipped++;continue;}
-      const existing=await allRecords();
-      if(existing.some(r=>r.orderNo===item.orderNo&&r.frameNo===item.frameNo&&JSON.stringify(r.operations||[])===JSON.stringify(item.operations||[]))){skipped++;continue;}
+$("importInput").addEventListener("change", async e => {
+  const file = e.target.files?.[0]; if (!file) return;
+  if (!confirm("Importer cette sauvegarde ? Les fiches existantes seront conservées.")) { e.target.value = ""; return; }
+  try {
+    const parsed = JSON.parse(await file.text());
+    if (!Array.isArray(parsed.records)) throw new Error("Format de sauvegarde invalide.");
+    let added = 0, skipped = 0;
+    for (const item of parsed.records) {
+      if (!item?.orderNo || !item?.frameNo) { skipped++; continue; }
+      const existing = await allRecords();
+      if (existing.some(r => r.orderNo === item.orderNo && r.frameNo === item.frameNo && JSON.stringify(r.operations || []) === JSON.stringify(item.operations || []))) { skipped++; continue; }
       await saveRecord({
-        clientName:String(item.clientName||""),orderNo:String(item.orderNo),frameNo:String(item.frameNo),
-        operations:OPS.filter(op=>(item.operations||[]).includes(op)),notes:String(item.notes||""),ocrText:String(item.ocrText||""),
-        photo:item.photo||null,photoType:item.photoType||"image/jpeg",createdAt:Number(item.createdAt)||Date.now(),updatedAt:Number(item.updatedAt)||Date.now()
-      });added++;
+        clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo),
+        operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""),
+        ocrText: String(item.ocrText || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg",
+        createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now()
+      });
+      added++;
     }
-    await refreshRecords();status("backupStatus",`Import terminé : ${added} ajoutée(s), ${skipped} ignorée(s).`);
-  }catch(err){status("backupStatus","Import impossible : "+err.message,true);}
-  finally{e.target.value="";}
+    await refreshRecords(); status("backupStatus", `Import terminé : ${added} ajoutée(s), ${skipped} ignorée(s).`);
+  } catch (err) { status("backupStatus", "Import impossible : " + err.message, true); }
+  finally { e.target.value = ""; }
 });
-(async()=>{try{await openDB();await refreshRecords();}catch(e){status("formStatus","Impossible d’ouvrir la base locale : "+e.message,true);}})();
+(async () => {
+  try { await openDB(); await refreshRecords(); }
+  catch (e) { status("formStatus", "Impossible d’ouvrir la base locale : " + e.message, true); }
+})();
 })();
