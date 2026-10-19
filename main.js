@@ -278,6 +278,19 @@ function extractFields(raw) {
       }
     }
   }
+  // Certaines étiquettes WAKO utilisent un code court comme « 004-1 ».
+  // Il faut le chercher uniquement sur une ligne dédiée pour éviter de prendre
+  // les autres nombres de l'étiquette (commande, dates ou références).
+  if (!chassis) {
+    for (const line of upperLines) {
+      const normalizedLine = line.replace(/[–—]/g, "-").trim();
+      const match = normalizedLine.match(/^(\d{3})\s*-\s*(\d)$/);
+      if (match) {
+        chassis = `${match[1]}-${match[2]}`;
+        break;
+      }
+    }
+  }
   return { lines, order, client, chassis };
 }
 function applyExtractedFields(raw) {
