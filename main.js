@@ -686,6 +686,7 @@ $("saveBtn").addEventListener("click", async () => {
   if (!orderNo) { status("formStatus", "Le numéro de commande est obligatoire.", true); $("orderNo").focus(); return; }
   if (!frameNo) { status("formStatus", "Le numéro du châssis est obligatoire.", true); $("frameNo").focus(); return; }
   const now = Date.now();
+  const wasEditing = editingId !== null && editingId !== undefined;
   try {
     const displayedRaw = $("ocrResult").textContent.trim();
     const isInstruction = displayedRaw === OCR_PLACEHOLDER
@@ -709,10 +710,17 @@ $("saveBtn").addEventListener("click", async () => {
       const old = await getRecord(editingId);
       record.createdAt = old?.createdAt || now;
     } else record.createdAt = now;
-    editingId = await saveRecord(record);
-    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
-    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
+    const savedId = await saveRecord(record);
     await refreshRecords();
+    if (wasEditing) {
+      editingId = savedId;
+      $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+      status("formStatus", "Fiche mise à jour avec succès. Les autres fiches sont conservées.");
+    } else {
+      // Une nouvelle fiche doit toujours être ajoutée, jamais réécrite à la prochaine sauvegarde.
+      resetForm();
+      status("formStatus", "Nouvelle fiche enregistrée. Le formulaire est prêt pour la fiche suivante.");
+    }
   } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
 });
 $("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
