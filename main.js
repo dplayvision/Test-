@@ -69,7 +69,7 @@ function dataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
+    reader.onerror = () => reject(reader.error || new Error("Lecture du fichier impossible."));
     reader.readAsDataURL(file);
   });
 }
@@ -218,26 +218,19 @@ function makeOCRBlob(dataUrl, maxSide = 1500, quality = 0.82, rotationDegrees = 
   });
 }
 
-// CORRECTION WAKO : extraction des champs depuis le texte OCR.
+// Extraction des champs depuis le texte OCR.
 function extractFields(raw) {
   const lines = String(raw || "")
     .split(/\r?\n/)
     .map(cleanText)
     .filter(Boolean);
-
   const upperLines = lines.map(line => line.toUpperCase());
   const all = upperLines.join(" ");
-
-  // Commande : cherche le motif sur une seule ligne pour éviter d'ajouter
-  // un chiffre isolé provenant d'une autre partie de l'étiquette.
   let order = "";
   for (const line of upperLines) {
     const match = line.replace(/\s+/g, "").match(/\d{2}CR\d{4,8}/);
     if (match) { order = match[0]; break; }
   }
-
-  // Nom du client : privilégie la ligne qui contient le nom et son identifiant
-  // client (ex. DEBOUGNOUX_S 19433), puis retire uniquement l'identifiant.
   let client = "";
   const clientLine = lines.find(line =>
     /\b\d{4,6}\b/.test(line) &&
@@ -255,16 +248,11 @@ function extractFields(raw) {
       .replace(/\s+/g, " ")
       .trim();
   }
-
-  // Nettoyage ciblé de noms où l'OCR insère des espaces au milieu d'un mot.
-  // Exemple connu sur l'étiquette visible : DEB UGN UX S -> DEBOUGNOUX S.
   const compactClient = client.toUpperCase().replace(/[^A-ZÀ-Ÿ]/g, "");
   if (compactClient === "DEBUGNOUXS" || compactClient === "DEBOUGNOUXS" ||
       /DEB.*UGN.*UX.*S/.test(client.toUpperCase())) {
     client = "DEBOUGNOUX S";
   }
-
-  // Repli pour les clients sans identifiant numérique sur la même ligne.
   if (!client) {
     const candidate = lines.find(line =>
       /[A-Za-zÀ-ÿ]{4,}/.test(line) &&
@@ -273,16 +261,11 @@ function extractFields(raw) {
       !/^\[?LI[- ]?\d+\]?$/i.test(line) &&
       !/^\/?\d{3,}\W*$/.test(line)
     );
-    if (candidate) {
-      client = candidate.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-    }
+    if (candidate) client = candidate.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   }
-
-  // Châssis : GAS1 006 / CAS1 006 et ancien format ACS1-S P002.
   let chassis = "";
   const gasMatch = all.match(/\b(GA|CA)S1\s*[-_ ]*\s*(\d{3})\b/i);
   if (gasMatch) chassis = "GAS1 " + gasMatch[2];
-
   if (!chassis) {
     for (const line of upperLines) {
       const normalizedLine = line.replace(/[–—]/g, "-");
@@ -295,23 +278,17 @@ function extractFields(raw) {
       }
     }
   }
-
   return { lines, order, client, chassis };
 }
-
 function applyExtractedFields(raw) {
   const fields = extractFields(raw);
-
   if (fields.order) $("orderNo").value = fields.order;
   if (fields.client) $("clientName").value = fields.client;
   if (fields.chassis) $("frameNo").value = fields.chassis;
-
   console.log("Champs extraits de l'étiquette WAKO :", fields);
 }
 
-
-// Recadrage : prépare d'abord une copie tournée selon l'orientation choisie par l'utilisateur.
-// La photo originale reste intacte pour l'historique et les sauvegardes.
+// Recadrage : prépare une copie tournée ; la photo originale reste intacte.
 function makeRotatedCropSource(dataUrl, degrees) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -339,9 +316,7 @@ function openCropper() {
     return;
   }
   if (!originalLabelPhoto) { originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType; }
-  const modal = $("cropModal");
-  const canvas = $("cropCanvas");
-  const ctx = canvas.getContext("2d");
+  const modal = $("cropModal"), canvas = $("cropCanvas"), ctx = canvas.getContext("2d");
   status("scanStatus", photoRotation ? "Préparation de la photo tournée pour le cadrage…" : "Ouverture du cadrage…");
   makeRotatedCropSource(currentPhoto, photoRotation).then(rotatedSource => {
     cropImage = new Image();
@@ -361,12 +336,9 @@ function openCropper() {
     cropImage.src = rotatedSource;
   }).catch(error => status("scanStatus", error.message, true));
 }
-// Détection heuristique de la grande zone claire correspondant à l'étiquette.
-// Elle propose un cadre, mais laisse toujours la possibilité de le corriger au doigt.
 function autoDetectLabel() {
   if (!cropImage) return;
-  const sample = document.createElement("canvas");
-  const maxSide = 240;
+  const sample = document.createElement("canvas"), maxSide = 240;
   const scale = Math.min(1, maxSide / Math.max(cropImage.naturalWidth, cropImage.naturalHeight));
   sample.width = Math.max(1, Math.round(cropImage.naturalWidth * scale));
   sample.height = Math.max(1, Math.round(cropImage.naturalHeight * scale));
@@ -375,7 +347,6 @@ function autoDetectLabel() {
   const data = sctx.getImageData(0, 0, sample.width, sample.height).data;
   const w = sample.width, h = sample.height, seen = new Uint8Array(w*h);
   let best = null, bestScore = 0;
-  // Recherche des composantes claires; seuil volontairement strict pour éviter le métal gris.
   for (let y=0; y<h; y++) for (let x=0; x<w; x++) {
     const start=y*w+x, p=start*4;
     if (seen[start]) continue;
@@ -395,7 +366,6 @@ function autoDetectLabel() {
     }
     const bw=maxX-minX+1,bh=maxY-minY+1,area=bw*bh, fraction=area/(w*h), aspect=bw/bh;
     if(fraction<0.012||fraction>0.72||count<area*0.45)continue;
-    // Favor a substantial, mostly rectangular light area; score penalizes tiny scattered highlights.
     const rectangularity=count/area;
     const score=count * rectangularity * (aspect>0.08&&aspect<8 ? 1 : 0.25);
     if(score>bestScore){bestScore=score;best={x:minX,y:minY,w:bw,h:bh};}
@@ -409,7 +379,6 @@ function autoDetectLabel() {
     drawCropOverlay();
     status("scanStatus","Cadrage automatique proposé. Vérifie les bords et ajuste au doigt si nécessaire.");
   } else {
-    // Fallback sûr : sélection centrale large, à ajuster manuellement.
     cropRect={x:$("cropCanvas").width*0.12,y:$("cropCanvas").height*0.12,w:$("cropCanvas").width*0.76,h:$("cropCanvas").height*0.76};
     drawCropOverlay();
     status("scanStatus","Je n’ai pas isolé les bords avec certitude. Un cadre de départ est proposé : ajuste-le au doigt.",true);
@@ -417,14 +386,13 @@ function autoDetectLabel() {
 }
 function adjustCropZoom(factor) {
   const canvas=$("cropCanvas");
-  if(!cropRect){cropRect={x:canvas.width*.12,y:canvas.height*.12,w:canvas.width*.76,h:canvas.height*.76};}
+  if(!cropRect) cropRect={x:canvas.width*.12,y:canvas.height*.12,w:canvas.width*.76,h:canvas.height*.76};
   const cx=cropRect.x+cropRect.w/2, cy=cropRect.y+cropRect.h/2;
   const nw=Math.max(24,Math.min(canvas.width,cropRect.w*factor));
   const nh=Math.max(24,Math.min(canvas.height,cropRect.h*factor));
   cropRect={x:Math.max(0,Math.min(canvas.width-nw,cx-nw/2)),y:Math.max(0,Math.min(canvas.height-nh,cy-nh/2)),w:nw,h:nh};
   drawCropOverlay();
 }
-
 function drawCropOverlay() {
   if (!cropImage) return;
   const canvas = $("cropCanvas"), ctx = canvas.getContext("2d");
@@ -438,12 +406,8 @@ function drawCropOverlay() {
   ctx.drawImage(cropImage, 0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "rgba(37,99,235,.10)";
   ctx.fillRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
-  ctx.strokeStyle = "#2563eb";
-  ctx.lineWidth = 3;
-  ctx.setLineDash([8, 4]);
-  ctx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
-  ctx.setLineDash([]);
-  // Poignées aux quatre coins pour redimensionner le cadre au doigt.
+  ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 3; ctx.setLineDash([8, 4]);
+  ctx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h); ctx.setLineDash([]);
   const r = 8;
   const corners = [[cropRect.x,cropRect.y],[cropRect.x+cropRect.w,cropRect.y],[cropRect.x,cropRect.y+cropRect.h],[cropRect.x+cropRect.w,cropRect.y+cropRect.h]];
   ctx.fillStyle = "#fff"; ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2;
@@ -451,8 +415,7 @@ function drawCropOverlay() {
   ctx.restore();
 }
 function cropPointerPosition(event) {
-  const canvas = $("cropCanvas");
-  const bounds = canvas.getBoundingClientRect();
+  const canvas = $("cropCanvas"), bounds = canvas.getBoundingClientRect();
   return {
     x: Math.max(0, Math.min(canvas.width, (event.clientX - bounds.left) * canvas.width / bounds.width)),
     y: Math.max(0, Math.min(canvas.height, (event.clientY - bounds.top) * canvas.height / bounds.height))
@@ -504,9 +467,7 @@ function moveCropDrag(event) {
 function endCropDrag() { cropDrag=null; cropDragMode=null; cropResizeHandle=null; cropDragStart=null; cropRectStart=null; }
 function closeCropper() {
   $("cropModal").style.display = "none";
-  cropImage = null;
-  cropRect = null;
-  cropDrag = null;
+  cropImage = null; cropRect = null; cropDrag = null;
 }
 function applyCrop() {
   if (!cropImage || !cropRect || cropRect.w < 12 || cropRect.h < 12) {
@@ -515,68 +476,48 @@ function applyCrop() {
   }
   const scaleX = cropImage.naturalWidth / $("cropCanvas").width;
   const scaleY = cropImage.naturalHeight / $("cropCanvas").height;
-  const x = Math.round(cropRect.x * scaleX);
-  const y = Math.round(cropRect.y * scaleY);
-  const w = Math.round(cropRect.w * scaleX);
-  const h = Math.round(cropRect.h * scaleY);
-  const out = document.createElement("canvas");
-  out.width = w; out.height = h;
+  const x = Math.round(cropRect.x * scaleX), y = Math.round(cropRect.y * scaleY);
+  const w = Math.round(cropRect.w * scaleX), h = Math.round(cropRect.h * scaleY);
+  const out = document.createElement("canvas"); out.width = w; out.height = h;
   out.getContext("2d").drawImage(cropImage, x, y, w, h, 0, 0, w, h);
   const cropped = out.toDataURL("image/jpeg", .94);
-  // L'image recadrée devient la source de lecture/aperçu ; la photo originale de départ reste mémorisée.
   setPhoto(cropped, "image/jpeg");
   closeCropper();
   setOcrText("Photo recadrée. Appuie sur « Lire le texte de la photo ».");
-  status("scanStatus", "Recadrage appliqué. La photo originale de la fiche est conservée séparément si elle était déjà définie.");
+  status("scanStatus", "Recadrage appliqué. La photo originale de la fiche reste conservée séparément.");
 }
-
-// Correction du texte brut : les changements sont validés avant d’être conservés.
 function beginOcrEdit() {
   if (isReading) return;
   const visibleText = $("ocrResult").textContent.trim();
   $("ocrEditor").value = visibleText === OCR_PLACEHOLDER ? "" : visibleText;
   ocrEditOpen = true;
-  $("ocrResult").style.display = "none";
-  $("ocrEditor").style.display = "block";
-  $("editOcrBtn").style.display = "none";
-  $("saveOcrEditBtn").style.display = "";
-  $("cancelOcrEditBtn").style.display = "";
+  $("ocrResult").style.display = "none"; $("ocrEditor").style.display = "block";
+  $("editOcrBtn").style.display = "none"; $("saveOcrEditBtn").style.display = ""; $("cancelOcrEditBtn").style.display = "";
   $("ocrEditor").focus();
 }
 function saveOcrEdit() {
   if (!ocrEditOpen) return;
   const corrected = $("ocrEditor").value.trim();
-  setOcrText(corrected);
-  closeOcrEditor();
+  setOcrText(corrected); closeOcrEditor();
   if (corrected) applyExtractedFields(corrected);
   status("scanStatus", "Texte brut corrigé. Les corrections seront enregistrées avec la fiche.");
 }
-function cancelOcrEdit() {
-  $("ocrEditor").value = "";
-  closeOcrEditor();
-}
+function cancelOcrEdit() { $("ocrEditor").value = ""; closeOcrEditor(); }
+
 async function runOCR() {
   if (isReading) return;
-  if (!currentPhoto) {
-    status("scanStatus", "Choisis d’abord une photo de l’étiquette.", true);
-    return;
-  }
-  const savedPhoto = currentPhoto;
-  const savedPhotoType = currentPhotoType;
-  isReading = true;
-  $("readLabelBtn").disabled = true;
+  if (!currentPhoto) { status("scanStatus", "Choisis d’abord une photo de l’étiquette.", true); return; }
+  const savedPhoto = currentPhoto, savedPhotoType = currentPhotoType;
+  isReading = true; $("readLabelBtn").disabled = true;
   try {
-    $("preview").src = savedPhoto;
-    $("preview").style.display = "block";
+    $("preview").src = savedPhoto; $("preview").style.display = "block";
     status("scanStatus", "Chargement du moteur OCR…");
     if (!ocrInstance) {
       ocrInstance = await PaddleOCR.create({
-        lang: "en",
-        ocrVersion: "PP-OCRv5",
+        lang: "en", ocrVersion: "PP-OCRv5",
         ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
       });
     }
-    status("scanStatus", "Analyse de la photo en cours…");
     status("scanStatus", "Préparation d’une copie légère de la photo…");
     setOcrText("Préparation de la photo pour l’analyse… l’original est conservé.");
     const blob = await makeOCRBlob(savedPhoto, 1500, 0.82, photoRotation);
@@ -584,9 +525,6 @@ async function runOCR() {
     setOcrText("Analyse en cours… la photo originale est conservée.");
     const results = await ocrInstance.predict(blob);
     console.log("Résultat brut PaddleOCR :", results);
-    // Nettoyage du logo vertical WAKO : il ne doit pas apparaître dans le texte brut.
-    // On retire le mot exact WAKO ainsi que les lettres W-A-K-O isolées lorsqu'elles
-    // sont reconnues en séquence par l'OCR. Les autres lignes restent inchangées.
     const ocrLines = (Array.isArray(results) ? results : [results])
       .flatMap(result => (result?.items || []).map(item => cleanText(item?.text || "")))
       .filter(Boolean);
@@ -595,8 +533,7 @@ async function runOCR() {
       const token = ocrLines[i].toUpperCase().replace(/[^A-Z]/g, "");
       if (token === "WAKO") continue;
       if (token === "W" && ocrLines.slice(i, i + 4).map(line => line.toUpperCase().replace(/[^A-Z]/g, "")).join("") === "WAKO") {
-        i += 3;
-        continue;
+        i += 3; continue;
       }
       filteredLines.push(ocrLines[i]);
     }
@@ -610,41 +547,62 @@ async function runOCR() {
     setOcrText("Erreur pendant la lecture : " + errorMessage);
     status("scanStatus", "Erreur OCR : " + errorMessage, true);
   } finally {
-    currentPhoto = savedPhoto;
-    currentPhotoType = savedPhotoType;
-    if (savedPhoto) {
-      $("preview").setAttribute("src", savedPhoto);
-      $("preview").style.display = "block";
-    }
-    isReading = false;
-    $("readLabelBtn").disabled = false;
+    currentPhoto = savedPhoto; currentPhotoType = savedPhotoType;
+    if (savedPhoto) { $("preview").setAttribute("src", savedPhoto); $("preview").style.display = "block"; }
+    isReading = false; $("readLabelBtn").disabled = false;
   }
 }
 
 $("editOcrBtn").addEventListener("click", beginOcrEdit);
 $("saveOcrEditBtn").addEventListener("click", saveOcrEdit);
 $("cancelOcrEditBtn").addEventListener("click", cancelOcrEdit);
-$("cameraInput").addEventListener("change", async e => {
-  const file = e.target.files?.[0]; if (!file) return;
+
+// Correctif sélection photo : fonctionne avec le label for="cameraInput" existant dans le HTML.
+// Un bouton #choosePhotoBtn facultatif est également pris en charge si tu l'as ajouté.
+const photoInput = $("cameraInput");
+const choosePhotoBtn = $("choosePhotoBtn");
+if (choosePhotoBtn) {
+  choosePhotoBtn.addEventListener("click", () => photoInput.click());
+}
+photoInput.addEventListener("change", async (e) => {
+  const input = e.target;
+  const file = input.files && input.files[0];
+  if (!file) return;
   try {
-    setPhoto(await dataURL(file), file.type);
-    originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType;
-    setOcrText("");
+    if (!file.type.startsWith("image/")) {
+      throw new Error("Le fichier sélectionné n'est pas une image.");
+    }
+    status("scanStatus", "Chargement de la photo…");
+    const data = await dataURL(file);
+    await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("Impossible d'ouvrir cette image sur le téléphone."));
+      img.src = data;
+    });
+    setPhoto(data, file.type || "image/jpeg");
+    originalLabelPhoto = data;
+    originalLabelPhotoType = file.type || "image/jpeg";
     $("clientName").value = ""; $("orderNo").value = ""; $("frameNo").value = "";
     closeOcrEditor();
     setOcrText("Photo chargée. Appuie sur « Lire le texte de la photo ».");
-    status("scanStatus", "Photo chargée. Appuie sur « Lire le texte de la photo » pour analyser.");
-  } catch (err) { status("scanStatus", "Impossible de lire la photo : " + err.message, true); }
+    status("scanStatus", "Photo chargée avec succès. Tu peux la cadrer ou lancer la lecture OCR.");
+  } catch (err) {
+    console.error("Erreur de chargement de la photo :", err);
+    status("scanStatus", "Impossible de charger la photo : " + (err.message || err), true);
+  } finally {
+    // Permet de sélectionner à nouveau la même photo sur iOS.
+    input.value = "";
+  }
 });
+
 $("clearPhotoBtn").addEventListener("click", () => {
-  setPhoto(null); originalLabelPhoto = null; originalLabelPhotoType = "image/jpeg"; $("cameraInput").value = ""; setOcrText(""); closeOcrEditor();
+  setPhoto(null); originalLabelPhoto = null; originalLabelPhotoType = "image/jpeg";
+  $("cameraInput").value = ""; setOcrText(""); closeOcrEditor();
   status("scanStatus", "Photo retirée de la fiche en cours.");
 });
 function rotatePreview(degrees) {
-  if (!currentPhoto) {
-    status("scanStatus", "Choisis ou capture d’abord une photo.", true);
-    return;
-  }
+  if (!currentPhoto) { status("scanStatus", "Choisis ou capture d’abord une photo.", true); return; }
   photoRotation = (photoRotation + degrees + 360) % 360;
   $("preview").style.setProperty("--preview-rotation", `${photoRotation}deg`);
   status("scanStatus", `Orientation de lecture : ${photoRotation}°. La photo originale reste inchangée.`);
@@ -692,14 +650,18 @@ $("startScanBtn").addEventListener("click", async () => {
     $("liveVideo").srcObject = liveStream; $("liveVideo").style.display = "block"; await $("liveVideo").play();
     $("captureBtn").disabled = false; $("stopScanBtn").disabled = false;
     status("scanStatus", "Caméra ouverte. Capture l’étiquette pour la lire.");
-  } catch (e) { stopCamera(); status("scanStatus", "Impossible d’ouvrir la caméra. Vérifie l’autorisation et utilise le site en HTTPS.", true); }
+  } catch (e) {
+    stopCamera();
+    status("scanStatus", "Impossible d’ouvrir la caméra. Vérifie l’autorisation et utilise le site en HTTPS.", true);
+  }
 });
 $("captureBtn").addEventListener("click", async () => {
   const video = $("liveVideo");
   if (!video.videoWidth) { status("scanStatus", "Attends que l’image de la caméra apparaisse.", true); return; }
   const canvas = document.createElement("canvas"); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
-  setPhoto(canvas.toDataURL("image/jpeg", .92), "image/jpeg"); originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType; stopCamera();
+  setPhoto(canvas.toDataURL("image/jpeg", .92), "image/jpeg");
+  originalLabelPhoto = currentPhoto; originalLabelPhotoType = currentPhotoType; stopCamera();
   setOcrText("Photo capturée. Appuie sur « Lire le texte de la photo ».");
   status("scanStatus", "Photo capturée. Appuie sur « Lire le texte de la photo » pour lancer l’analyse.");
 });
@@ -715,13 +677,24 @@ $("saveBtn").addEventListener("click", async () => {
     const isInstruction = displayedRaw === OCR_PLACEHOLDER
       || displayedRaw.startsWith("Photo chargée.")
       || displayedRaw.startsWith("Photo capturée.")
+      || displayedRaw.startsWith("Photo recadrée.")
       || displayedRaw.startsWith("Préparation de la photo")
       || displayedRaw.startsWith("Analyse en cours")
       || displayedRaw.startsWith("Erreur pendant la lecture :")
       || displayedRaw.startsWith("Aucun texte détecté.");
     const ocrText = isInstruction ? "" : displayedRaw;
-    const record = { clientName: $("clientName").value.trim(), orderNo, frameNo, operations: getOps(), notes: $("notes").value.trim(), ocrText, photo: originalLabelPhoto || currentPhoto, photoType: originalLabelPhotoType || currentPhotoType, updatedAt: now };
-    if (editingId) { record.id = editingId; const old = await getRecord(editingId); record.createdAt = old?.createdAt || now; } else record.createdAt = now;
+    const record = {
+      clientName: $("clientName").value.trim(), orderNo, frameNo,
+      operations: getOps(), notes: $("notes").value.trim(), ocrText,
+      photo: originalLabelPhoto || currentPhoto,
+      photoType: originalLabelPhotoType || currentPhotoType,
+      updatedAt: now
+    };
+    if (editingId) {
+      record.id = editingId;
+      const old = await getRecord(editingId);
+      record.createdAt = old?.createdAt || now;
+    } else record.createdAt = now;
     editingId = await saveRecord(record);
     $("saveBtn").textContent = "💾 Mettre à jour la fiche";
     status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
@@ -751,7 +724,12 @@ $("importInput").addEventListener("change", async e => {
       if (!item?.orderNo || !item?.frameNo) { skipped++; continue; }
       const existing = await allRecords();
       if (existing.some(r => r.orderNo === item.orderNo && r.frameNo === item.frameNo && JSON.stringify(r.operations || []) === JSON.stringify(item.operations || []))) { skipped++; continue; }
-      await saveRecord({ clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo), operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""), ocrText: String(item.ocrText || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg", createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now() });
+      await saveRecord({
+        clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo),
+        operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""),
+        ocrText: String(item.ocrText || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg",
+        createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now()
+      });
       added++;
     }
     await refreshRecords(); status("backupStatus", `Import terminé : ${added} ajoutée(s), ${skipped} ignorée(s).`);
