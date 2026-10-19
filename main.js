@@ -278,6 +278,29 @@ function extractFields(raw) {
       }
     }
   }
+  // Certaines étiquettes portent « NOS2-S » sur une ligne puis le numéro
+  // de châssis sur la ligne suivante (ex. « 006 »). On ne prend le nombre
+  // que si le libellé NOS2-S est présent, afin d'éviter les autres références.
+  if (!chassis) {
+    for (let i = 0; i < upperLines.length; i++) {
+      const normalizedLine = upperLines[i].replace(/[–—]/g, "-").trim();
+      const sameLine = normalizedLine.match(/\bNOS2\s*-\s*S\s*[:#]?\s*(\d{3,6})\b/i);
+      if (sameLine) {
+        chassis = sameLine[1];
+        break;
+      }
+      if (/\bNOS2\s*-\s*S\b/i.test(normalizedLine)) {
+        for (let j = i + 1; j < Math.min(i + 4, upperLines.length); j++) {
+          const nextLine = upperLines[j].trim();
+          const numberOnly = nextLine.match(/^(\d{3,6})$/);
+          if (numberOnly) { chassis = numberOnly[1]; break; }
+          // Arrête si une nouvelle référence textuelle apparaît avant le nombre.
+          if (/[A-Z]{2,}/i.test(nextLine)) break;
+        }
+        if (chassis) break;
+      }
+    }
+  }
   // Certaines étiquettes WAKO utilisent un code court comme « 004-1 ».
   // Il faut le chercher uniquement sur une ligne dédiée pour éviter de prendre
   // les autres nombres de l'étiquette (commande, dates ou références).
