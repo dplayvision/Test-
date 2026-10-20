@@ -722,12 +722,24 @@ $("searchBox").addEventListener("input", refreshRecords);
 $("exportBtn").addEventListener("click", async () => {
   try {
     const records = await allRecords();
-    const blob = new Blob([JSON.stringify({ app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records })], { type: "application/json" });
-    const url = URL.createObjectURL(blob), a = document.createElement("a");
-    a.href = url; a.download = `scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus.`);
-  } catch (e) { status("backupStatus", "Échec de l’export : " + e.message, true); }
+    const backup = { app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records };
+    const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+    const filename = `scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
+    const file = new File([blob], filename, { type: "application/json" });
+    // Sur iPhone, ouvre la feuille de partage afin de choisir « Enregistrer dans Fichiers ».
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "Sauvegarde Scan Châssis", text: "Sauvegarde des fiches et photos Scan Châssis" });
+      status("backupStatus", `${records.length} fiche(s) préparée(s). Choisis « Enregistrer dans Fichiers » dans le menu de partage.`);
+    } else {
+      const url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+      status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus. Si demandé, choisis Enregistrer dans Fichiers.`);
+    }
+  } catch (e) {
+    if (e && e.name === "AbortError") status("backupStatus", "Sauvegarde annulée. Aucune fiche n’a été supprimée.", true);
+    else status("backupStatus", "Échec de la sauvegarde : " + (e?.message || e), true);
+  }
 });
 $("importInput").addEventListener("change", async e => {
   const file = e.target.files?.[0]; if (!file) return;
