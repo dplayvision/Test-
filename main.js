@@ -837,7 +837,13 @@ async function generateSummary() {
     rows.sort((a, b) => a.timestamp - b.timestamp || a.orderNo.localeCompare(b.orderNo, 'fr') || a.operation.localeCompare(b.operation, 'fr'));
     currentSummaryRows = rows;
     renderSummary(rows);
-    $('exportSummaryBtn').disabled = rows.length === 0; $('saveSummaryImageBtn').disabled = rows.length === 0; $('printSummaryBtn').disabled = rows.length === 0;
+    const hasRows = rows.length > 0;
+    $('exportSummaryBtn').disabled = !hasRows;
+    $('saveSummaryImageBtn').disabled = !hasRows;
+    $('printSummaryBtn').disabled = !hasRows;
+    $('exportSummaryBtn').style.opacity = hasRows ? '1' : '0.5';
+    $('saveSummaryImageBtn').style.opacity = hasRows ? '1' : '0.5';
+    $('printSummaryBtn').style.opacity = hasRows ? '1' : '0.5';
     status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
   } catch (error) {
     currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
@@ -890,7 +896,21 @@ $('summaryStart').value = today;
 $('summaryEnd').value = today;
 
 (async () => {
-  try { await openDB(); await refreshRecords(); }
-  catch (e) { status("formStatus", "Impossible d’ouvrir la base locale : " + e.message, true); }
+  try {
+    await openDB();
+    await refreshRecords();
+  } catch (e) {
+    console.error("Erreur au démarrage de Scan Châssis / accès aux fiches :", e);
+    const message = "Impossible de charger les anciennes fiches : " + (e?.message || String(e)) + ". Ne supprime pas les données du navigateur. Essaie de recharger la page et conserve toute sauvegarde JSON disponible.";
+    status("formStatus", message, true);
+    const history = $("records");
+    if (history) {
+      const error = document.createElement("div");
+      error.className = "empty";
+      error.style.color = "#b91c1c";
+      error.textContent = message;
+      history.replaceChildren(error);
+    }
+  }
 })();
 })();
