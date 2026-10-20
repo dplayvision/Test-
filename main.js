@@ -809,11 +809,11 @@ async function generateSummary() {
   const startValue = $('summaryStart').value;
   const endValue = $('summaryEnd').value;
   if (!startValue || !endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
     status('summaryStatus', 'Choisis une date de début et une date de fin.', true); return;
   }
   if (startValue > endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
     status('summaryStatus', 'La date de début doit être antérieure ou égale à la date de fin.', true); return;
   }
   try {
@@ -838,9 +838,11 @@ async function generateSummary() {
     currentSummaryRows = rows;
     renderSummary(rows);
     $('exportSummaryBtn').disabled = rows.length === 0;
+    $('saveSummaryImageBtn').disabled = rows.length === 0;
+    $('printSummaryBtn').disabled = rows.length === 0;
     status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
   } catch (error) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
     status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
   }
 }
