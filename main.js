@@ -709,10 +709,12 @@ $("saveBtn").addEventListener("click", async () => {
       const old = await getRecord(editingId);
       record.createdAt = old?.createdAt || now;
     } else record.createdAt = now;
-    editingId = await saveRecord(record);
-    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
-    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
+    await saveRecord(record);
     await refreshRecords();
+    // Après chaque validation, vider le formulaire pour encoder la fiche suivante.
+    // La fiche sauvegardée reste dans l'historique et n'est pas supprimée.
+    resetForm();
+    status("formStatus", "Fiche enregistrée avec succès. Le formulaire est remis à zéro pour la suivante.");
   } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
 });
 $("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
