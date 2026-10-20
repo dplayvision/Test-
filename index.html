@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f3f6fb">
 <title>Scan Châssis — Test PaddleOCR</title>
-<script type="module" src="/main.js"></script>
+<script type="module" src="./main.js?v=20261020fix1"></script>
 <style>
 :root{--bg:#f3f6fb;--card:#fff;--ink:#172033;--muted:#65718a;--line:#dfe6f0;--blue:#2563eb;--blue2:#1d4ed8;--green:#15803d;--red:#b91c1c;--shadow:0 8px 28px rgba(28,45,80,.08)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
@@ -33,6 +33,17 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 input[type=date]{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;min-height:46px;background:#fff;color:var(--ink)}
 @media(max-width:420px){.actions button{min-width:100%}}
 </style>
+<script>
+window.addEventListener("error", function (event) {
+  const message = event && event.message ? event.message : "Erreur JavaScript au chargement.";
+  const target = document.getElementById("scanStatus");
+  if (target) target.textContent = "Erreur de chargement : " + message + ". Vérifie que main.js est bien publié et que la connexion Internet fonctionne.";
+});
+window.addEventListener("unhandledrejection", function (event) {
+  const target = document.getElementById("scanStatus");
+  if (target) target.textContent = "Erreur : " + (event.reason && event.reason.message ? event.reason.message : String(event.reason));
+});
+</script>
 </head>
 <body>
 <header><div class="eyebrow">Atelier • Suivi de production</div><h1>📷 Scan Châssis</h1><p>Scanne l’étiquette, coche les opérations et retrouve chaque fiche.</p></header>
