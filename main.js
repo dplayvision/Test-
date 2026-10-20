@@ -1,4 +1,4 @@
-import { PaddleOCR } from "https://esm.sh/@paddleocr/paddleocr-js@0.4.2";
+import { PaddleOCR } from "@paddleocr/paddleocr-js";
 
 (() => {
 "use strict";
@@ -528,15 +528,8 @@ async function runOCR() {
     setOcrText("Analyse en cours… la photo originale est conservée.");
     const results = await ocrInstance.predict(blob);
     console.log("Résultat brut PaddleOCR :", results);
-    // PaddleOCR.predict() renvoie un tableau de résultats ; chaque résultat contient items[].text.
-    // Tolère aussi les wrappers éventuels sans faire échouer toute la lecture.
-    const resultList = Array.isArray(results) ? results : [results];
-    const ocrLines = resultList
-      .flatMap(result => {
-        const items = result?.items || result?.result?.items || result?.data?.items || [];
-        if (Array.isArray(items)) return items.map(item => cleanText(item?.text || item?.rec_text || ""));
-        return [];
-      })
+    const ocrLines = (Array.isArray(results) ? results : [results])
+      .flatMap(result => (result?.items || []).map(item => cleanText(item?.text || "")))
       .filter(Boolean);
     const filteredLines = [];
     for (let i = 0; i < ocrLines.length; i++) {
@@ -555,7 +548,7 @@ async function runOCR() {
     console.error("Erreur PaddleOCR", e);
     const errorMessage = e?.message || String(e);
     setOcrText("Erreur pendant la lecture : " + errorMessage);
-    status("scanStatus", "Erreur OCR : " + errorMessage + " — vérifie la connexion Internet puis réessaie.", true);
+    status("scanStatus", "Erreur OCR : " + errorMessage, true);
   } finally {
     currentPhoto = savedPhoto; currentPhotoType = savedPhotoType;
     if (savedPhoto) { $("preview").setAttribute("src", savedPhoto); $("preview").style.display = "block"; }
