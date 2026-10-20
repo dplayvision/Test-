@@ -278,42 +278,6 @@ function extractFields(raw) {
       }
     }
   }
-  // Certaines étiquettes portent « NOS2-S » sur une ligne puis le numéro
-  // de châssis sur la ligne suivante (ex. « 006 »). On ne prend le nombre
-  // que si le libellé NOS2-S est présent, afin d'éviter les autres références.
-  if (!chassis) {
-    for (let i = 0; i < upperLines.length; i++) {
-      const normalizedLine = upperLines[i].replace(/[–—]/g, "-").trim();
-      const sameLine = normalizedLine.match(/\bNOS2\s*-\s*S\s*[:#]?\s*(\d{3,6})\b/i);
-      if (sameLine) {
-        chassis = sameLine[1];
-        break;
-      }
-      if (/\bNOS2\s*-\s*S\b/i.test(normalizedLine)) {
-        for (let j = i + 1; j < Math.min(i + 4, upperLines.length); j++) {
-          const nextLine = upperLines[j].trim();
-          const numberOnly = nextLine.match(/^(\d{3,6})$/);
-          if (numberOnly) { chassis = numberOnly[1]; break; }
-          // Arrête si une nouvelle référence textuelle apparaît avant le nombre.
-          if (/[A-Z]{2,}/i.test(nextLine)) break;
-        }
-        if (chassis) break;
-      }
-    }
-  }
-  // Certaines étiquettes WAKO utilisent un code court comme « 004-1 ».
-  // Il faut le chercher uniquement sur une ligne dédiée pour éviter de prendre
-  // les autres nombres de l'étiquette (commande, dates ou références).
-  if (!chassis) {
-    for (const line of upperLines) {
-      const normalizedLine = line.replace(/[–—]/g, "-").trim();
-      const match = normalizedLine.match(/^(\d{3})\s*-\s*(\d)$/);
-      if (match) {
-        chassis = `${match[1]}-${match[2]}`;
-        break;
-      }
-    }
-  }
   return { lines, order, client, chassis };
 }
 function applyExtractedFields(raw) {
@@ -722,7 +686,6 @@ $("saveBtn").addEventListener("click", async () => {
   if (!orderNo) { status("formStatus", "Le numéro de commande est obligatoire.", true); $("orderNo").focus(); return; }
   if (!frameNo) { status("formStatus", "Le numéro du châssis est obligatoire.", true); $("frameNo").focus(); return; }
   const now = Date.now();
-  const wasEditing = editingId !== null && editingId !== undefined;
   try {
     const displayedRaw = $("ocrResult").textContent.trim();
     const isInstruction = displayedRaw === OCR_PLACEHOLDER
@@ -746,17 +709,10 @@ $("saveBtn").addEventListener("click", async () => {
       const old = await getRecord(editingId);
       record.createdAt = old?.createdAt || now;
     } else record.createdAt = now;
-    const savedId = await saveRecord(record);
+    editingId = await saveRecord(record);
+    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
     await refreshRecords();
-    if (wasEditing) {
-      editingId = savedId;
-      $("saveBtn").textContent = "💾 Mettre à jour la fiche";
-      status("formStatus", "Fiche mise à jour avec succès. Les autres fiches sont conservées.");
-    } else {
-      // Une nouvelle fiche doit toujours être ajoutée, jamais réécrite à la prochaine sauvegarde.
-      resetForm();
-      status("formStatus", "Nouvelle fiche enregistrée. Le formulaire est prêt pour la fiche suivante.");
-    }
   } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
 });
 $("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
@@ -794,6 +750,116 @@ $("importInput").addEventListener("change", async e => {
   } catch (err) { status("backupStatus", "Import impossible : " + err.message, true); }
   finally { e.target.value = ""; }
 });
+let currentSummaryRows = [];
+function dateInputValue(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+function getRecordDate(record) {
+  // La période correspond à la date de création de la fiche, pas à sa dernière modification.
+  return Number(record.createdAt || record.updatedAt || 0);
+}
+function summaryKey(row) {
+  return [row.clientName, row.orderNo, row.frameNo, row.operation, row.notes]
+    .map(value => String(value || '').trim().toLocaleLowerCase('fr'))
+    .join('\u001f');
+}
+function csvCell(value) {
+  let text = String(value ?? '');
+  if (/^[=+@\-\t\r]/.test(text)) text = "'" + text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+function renderSummary(rows) {
+  const target = $('summaryResults');
+  target.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'Aucune opération enregistrée pour cette période.';
+    target.appendChild(empty);
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.style.overflowX = 'auto';
+  const table = document.createElement('table');
+  table.style.cssText = 'width:100%;border-collapse:collapse;margin-top:12px;font-size:13px;min-width:720px';
+  const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  headers.forEach(label => {
+    const th = document.createElement('th'); th.textContent = label;
+    th.style.cssText = 'text-align:left;padding:10px 8px;background:#e8efff;border-bottom:1px solid #cbd5e1;white-space:nowrap';
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow); table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  rows.forEach((row, index) => {
+    const tr = document.createElement('tr');
+    if (index % 2) tr.style.background = '#f8fafc';
+    [row.date, row.clientName || '—', row.orderNo, row.frameNo, row.operation || '—', row.notes || '—'].forEach(value => {
+      const td = document.createElement('td'); td.textContent = value;
+      td.style.cssText = 'padding:9px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere';
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody); wrap.appendChild(table); target.appendChild(wrap);
+}
+async function generateSummary() {
+  const startValue = $('summaryStart').value;
+  const endValue = $('summaryEnd').value;
+  if (!startValue || !endValue) {
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    status('summaryStatus', 'Choisis une date de début et une date de fin.', true); return;
+  }
+  if (startValue > endValue) {
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    status('summaryStatus', 'La date de début doit être antérieure ou égale à la date de fin.', true); return;
+  }
+  try {
+    const start = new Date(startValue + 'T00:00:00').getTime();
+    const end = new Date(endValue + 'T23:59:59.999').getTime();
+    const records = await allRecords();
+    const seen = new Set();
+    const rows = [];
+    for (const record of records) {
+      const timestamp = getRecordDate(record);
+      if (!timestamp || timestamp < start || timestamp > end) continue;
+      const date = new Date(timestamp).toLocaleDateString('fr-BE');
+      const operations = (record.operations && record.operations.length) ? record.operations : [''];
+      for (const operation of operations) {
+        const row = { date, timestamp, clientName: String(record.clientName || ''), orderNo: String(record.orderNo || ''), frameNo: String(record.frameNo || ''), operation: String(operation || ''), notes: String(record.notes || '') };
+        const key = summaryKey(row);
+        if (seen.has(key)) continue;
+        seen.add(key); rows.push(row);
+      }
+    }
+    rows.sort((a, b) => a.timestamp - b.timestamp || a.orderNo.localeCompare(b.orderNo, 'fr') || a.operation.localeCompare(b.operation, 'fr'));
+    currentSummaryRows = rows;
+    renderSummary(rows);
+    $('exportSummaryBtn').disabled = rows.length === 0;
+    status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
+  } catch (error) {
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
+  }
+}
+$('generateSummaryBtn').addEventListener('click', generateSummary);
+$('exportSummaryBtn').addEventListener('click', () => {
+  if (!currentSummaryRows.length) return;
+  const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
+  const lines = [headers, ...currentSummaryRows.map(row => [row.date, row.clientName, row.orderNo, row.frameNo, row.operation, row.notes])];
+  const csv = '\ufeff' + lines.map(line => line.map(csvCell).join(';')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = `synthese-scan-chassis-${$('summaryStart').value}-${$('summaryEnd').value}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  status('summaryStatus', `${currentSummaryRows.length} ligne(s) exportée(s) en CSV compatible Excel.`);
+});
+const today = dateInputValue(new Date());
+$('summaryStart').value = today;
+$('summaryEnd').value = today;
+
 (async () => {
   try { await openDB(); await refreshRecords(); }
   catch (e) { status("formStatus", "Impossible d’ouvrir la base locale : " + e.message, true); }
