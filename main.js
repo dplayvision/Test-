@@ -811,11 +811,11 @@ async function generateSummary() {
   const startValue = $('summaryStart').value;
   const endValue = $('summaryEnd').value;
   if (!startValue || !endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true;
     status('summaryStatus', 'Choisis une date de début et une date de fin.', true); return;
   }
   if (startValue > endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true;
     status('summaryStatus', 'La date de début doit être antérieure ou égale à la date de fin.', true); return;
   }
   try {
@@ -842,13 +842,11 @@ async function generateSummary() {
     const hasRows = rows.length > 0;
     $('exportSummaryBtn').disabled = !hasRows;
     $('saveSummaryImageBtn').disabled = !hasRows;
-    $('printSummaryBtn').disabled = !hasRows;
     $('exportSummaryBtn').style.opacity = hasRows ? '1' : '0.5';
     $('saveSummaryImageBtn').style.opacity = hasRows ? '1' : '0.5';
-    $('printSummaryBtn').style.opacity = hasRows ? '1' : '0.5';
     status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
   } catch (error) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true;
     status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
   }
 }
@@ -885,13 +883,7 @@ function buildSummaryCanvas() {
 $('saveSummaryImageBtn').addEventListener('click', () => {
   try { const canvas=buildSummaryCanvas(); canvas.toBlob(blob=>{ if(!blob){status('summaryStatus','Impossible de créer l’image.',true);return;} const url=URL.createObjectURL(blob); const w=window.open(url,'_blank'); if(!w){const a=document.createElement('a');a.href=url;a.download=`synthese-scan-chassis-${$('summaryStart').value}-${$('summaryEnd').value}.png`;a.click();} status('summaryStatus','Image créée. Sur iPhone, ouvre-la puis fais un appui long pour choisir Enregistrer dans Photos.'); setTimeout(()=>URL.revokeObjectURL(url),60000); },'image/png'); } catch(e){status('summaryStatus',e.message,true);}
 });
-$('printSummaryBtn').addEventListener('click',()=>{
-  if(!currentSummaryRows.length)return; const w=window.open('','_blank'); if(!w){status('summaryStatus','Autorise les fenêtres surgissantes pour imprimer.',true);return;}
-  const headers=['Date fiche','Client','N° commande','N° châssis','Opération','Remarque'];
-  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const body=currentSummaryRows.map(r=>`<tr>${[r.date,r.clientName,r.orderNo,r.frameNo,r.operation,r.notes].map(v=>`<td>${esc(v||'—')}</td>`).join('')}</tr>`).join('');
-  w.document.write(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>Synthèse Scan Châssis</title><style>body{font:12px Arial;padding:15px}h1{font-size:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left;overflow-wrap:anywhere}th{background:#e8efff}tr:nth-child(even){background:#f5f7fb}@media print{button{display:none}}</style><h1>Synthèse Scan Châssis</h1><p>Période : ${esc($('summaryStart').value)} au ${esc($('summaryEnd').value)}</p><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>window.print()<\/script></html>`); w.document.close();
-});
+
 
 const today = dateInputValue(new Date());
 $('summaryStart').value = today;
