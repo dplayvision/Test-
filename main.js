@@ -278,6 +278,42 @@ function extractFields(raw) {
       }
     }
   }
+  // Certaines étiquettes portent « NOS2-S » sur une ligne puis le numéro
+  // de châssis sur la ligne suivante (ex. « 006 »). On ne prend le nombre
+  // que si le libellé NOS2-S est présent, afin d'éviter les autres références.
+  if (!chassis) {
+    for (let i = 0; i < upperLines.length; i++) {
+      const normalizedLine = upperLines[i].replace(/[–—]/g, "-").trim();
+      const sameLine = normalizedLine.match(/\bNOS2\s*-\s*S\s*[:#]?\s*(\d{3,6})\b/i);
+      if (sameLine) {
+        chassis = sameLine[1];
+        break;
+      }
+      if (/\bNOS2\s*-\s*S\b/i.test(normalizedLine)) {
+        for (let j = i + 1; j < Math.min(i + 4, upperLines.length); j++) {
+          const nextLine = upperLines[j].trim();
+          const numberOnly = nextLine.match(/^(\d{3,6})$/);
+          if (numberOnly) { chassis = numberOnly[1]; break; }
+          // Arrête si une nouvelle référence textuelle apparaît avant le nombre.
+          if (/[A-Z]{2,}/i.test(nextLine)) break;
+        }
+        if (chassis) break;
+      }
+    }
+  }
+  // Certaines étiquettes WAKO utilisent un code court comme « 004-1 ».
+  // Il faut le chercher uniquement sur une ligne dédiée pour éviter de prendre
+  // les autres nombres de l'étiquette (commande, dates ou références).
+  if (!chassis) {
+    for (const line of upperLines) {
+      const normalizedLine = line.replace(/[–—]/g, "-").trim();
+      const match = normalizedLine.match(/^(\d{3})\s*-\s*(\d)$/);
+      if (match) {
+        chassis = `${match[1]}-${match[2]}`;
+        break;
+      }
+    }
+  }
   return { lines, order, client, chassis };
 }
 function applyExtractedFields(raw) {
@@ -686,6 +722,7 @@ $("saveBtn").addEventListener("click", async () => {
   if (!orderNo) { status("formStatus", "Le numéro de commande est obligatoire.", true); $("orderNo").focus(); return; }
   if (!frameNo) { status("formStatus", "Le numéro du châssis est obligatoire.", true); $("frameNo").focus(); return; }
   const now = Date.now();
+  const wasEditing = editingId !== null && editingId !== undefined;
   try {
     const displayedRaw = $("ocrResult").textContent.trim();
     const isInstruction = displayedRaw === OCR_PLACEHOLDER
@@ -709,10 +746,17 @@ $("saveBtn").addEventListener("click", async () => {
       const old = await getRecord(editingId);
       record.createdAt = old?.createdAt || now;
     } else record.createdAt = now;
-    editingId = await saveRecord(record);
-    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
-    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
+    const savedId = await saveRecord(record);
     await refreshRecords();
+    if (wasEditing) {
+      editingId = savedId;
+      $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+      status("formStatus", "Fiche mise à jour avec succès. Les autres fiches sont conservées.");
+    } else {
+      // Une nouvelle fiche doit toujours être ajoutée, jamais réécrite à la prochaine sauvegarde.
+      resetForm();
+      status("formStatus", "Nouvelle fiche enregistrée. Le formulaire est prêt pour la fiche suivante.");
+    }
   } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
 });
 $("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
@@ -750,167 +794,8 @@ $("importInput").addEventListener("change", async e => {
   } catch (err) { status("backupStatus", "Import impossible : " + err.message, true); }
   finally { e.target.value = ""; }
 });
-let currentSummaryRows = [];
-function dateInputValue(date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
-}
-function getRecordDate(record) {
-  // La période correspond à la date de création de la fiche, pas à sa dernière modification.
-  return Number(record.createdAt || record.updatedAt || 0);
-}
-function summaryKey(row) {
-  return [row.clientName, row.orderNo, row.frameNo, row.operation, row.notes]
-    .map(value => String(value || '').trim().toLocaleLowerCase('fr'))
-    .join('\u001f');
-}
-function csvCell(value) {
-  let text = String(value ?? '');
-  if (/^[=+@\-\t\r]/.test(text)) text = "'" + text;
-  return '"' + text.replace(/"/g, '""') + '"';
-}
-function renderSummary(rows) {
-  const target = $('summaryResults');
-  target.replaceChildren();
-  if (!rows.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.textContent = 'Aucune opération enregistrée pour cette période.';
-    target.appendChild(empty);
-    return;
-  }
-  const wrap = document.createElement('div');
-  wrap.style.overflowX = 'auto';
-  const table = document.createElement('table');
-  table.style.cssText = 'width:100%;border-collapse:collapse;margin-top:12px;font-size:13px;min-width:720px';
-  const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
-  const thead = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  headers.forEach(label => {
-    const th = document.createElement('th'); th.textContent = label;
-    th.style.cssText = 'text-align:left;padding:10px 8px;background:#e8efff;border-bottom:1px solid #cbd5e1;white-space:nowrap';
-    headRow.appendChild(th);
-  });
-  thead.appendChild(headRow); table.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  rows.forEach((row, index) => {
-    const tr = document.createElement('tr');
-    if (index % 2) tr.style.background = '#f8fafc';
-    [row.date, row.clientName || '—', row.orderNo, row.frameNo, row.operation || '—', row.notes || '—'].forEach(value => {
-      const td = document.createElement('td'); td.textContent = value;
-      td.style.cssText = 'padding:9px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere';
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody); wrap.appendChild(table); target.appendChild(wrap);
-}
-async function generateSummary() {
-  const startValue = $('summaryStart').value;
-  const endValue = $('summaryEnd').value;
-  if (!startValue || !endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
-    status('summaryStatus', 'Choisis une date de début et une date de fin.', true); return;
-  }
-  if (startValue > endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
-    status('summaryStatus', 'La date de début doit être antérieure ou égale à la date de fin.', true); return;
-  }
-  try {
-    const start = new Date(startValue + 'T00:00:00').getTime();
-    const end = new Date(endValue + 'T23:59:59.999').getTime();
-    const records = await allRecords();
-    const seen = new Set();
-    const rows = [];
-    for (const record of records) {
-      const timestamp = getRecordDate(record);
-      if (!timestamp || timestamp < start || timestamp > end) continue;
-      const date = new Date(timestamp).toLocaleDateString('fr-BE');
-      const operations = (record.operations && record.operations.length) ? record.operations : [''];
-      for (const operation of operations) {
-        const row = { date, timestamp, clientName: String(record.clientName || ''), orderNo: String(record.orderNo || ''), frameNo: String(record.frameNo || ''), operation: String(operation || ''), notes: String(record.notes || '') };
-        const key = summaryKey(row);
-        if (seen.has(key)) continue;
-        seen.add(key); rows.push(row);
-      }
-    }
-    rows.sort((a, b) => a.timestamp - b.timestamp || a.orderNo.localeCompare(b.orderNo, 'fr') || a.operation.localeCompare(b.operation, 'fr'));
-    currentSummaryRows = rows;
-    renderSummary(rows);
-    const hasRows = rows.length > 0;
-    $('exportSummaryBtn').disabled = !hasRows;
-    $('saveSummaryImageBtn').disabled = !hasRows;
-    $('printSummaryBtn').disabled = !hasRows;
-    $('exportSummaryBtn').style.opacity = hasRows ? '1' : '0.5';
-    $('saveSummaryImageBtn').style.opacity = hasRows ? '1' : '0.5';
-    $('printSummaryBtn').style.opacity = hasRows ? '1' : '0.5';
-    status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
-  } catch (error) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true; $('printSummaryBtn').disabled = true;
-    status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
-  }
-}
-$('generateSummaryBtn').addEventListener('click', generateSummary);
-$('exportSummaryBtn').addEventListener('click', () => {
-  if (!currentSummaryRows.length) return;
-  const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
-  const lines = [headers, ...currentSummaryRows.map(row => [row.date, row.clientName, row.orderNo, row.frameNo, row.operation, row.notes])];
-  const csv = '\ufeff' + lines.map(line => line.map(csvCell).join(';')).join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob); const a = document.createElement('a');
-  a.href = url; a.download = `synthese-scan-chassis-${$('summaryStart').value}-${$('summaryEnd').value}.csv`;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-  status('summaryStatus', `${currentSummaryRows.length} ligne(s) exportée(s) en CSV compatible Excel.`);
-});
-
-function buildSummaryCanvas() {
-  if (!currentSummaryRows.length) throw new Error('Génère d’abord le tableau.');
-  const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
-  const rows = currentSummaryRows.map(r => [r.date, r.clientName || '—', r.orderNo || '—', r.frameNo || '—', r.operation || '—', r.notes || '—']);
-  const canvas = document.createElement('canvas');
-  const scale = 2, pad = 28, rowH = 42, headH = 48;
-  const widths = [120, 190, 145, 130, 270, 190];
-  const totalW = widths.reduce((a,b)=>a+b,0);
-  canvas.width = (totalW + pad*2) * scale; canvas.height = (pad*2 + headH + rows.length*rowH + 60) * scale;
-  const ctx = canvas.getContext('2d'); ctx.scale(scale, scale); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width/scale,canvas.height/scale);
-  ctx.fillStyle='#172033'; ctx.font='bold 24px Arial'; ctx.fillText('Synthèse Scan Châssis', pad, pad+24);
-  ctx.font='14px Arial'; ctx.fillStyle='#65718a'; ctx.fillText(`Période : ${$('summaryStart').value} au ${$('summaryEnd').value} — ${rows.length} ligne(s)`, pad, pad+46);
-  let y=pad+60; let x=pad; ctx.fillStyle='#e8efff'; ctx.fillRect(pad,y,totalW,headH); ctx.font='bold 13px Arial'; ctx.fillStyle='#172033';
-  headers.forEach((h,i)=>{ctx.fillText(h,x+8,y+28);x+=widths[i];}); y+=headH;
-  ctx.font='12px Arial'; rows.forEach((row,ri)=>{x=pad; if(ri%2) {ctx.fillStyle='#f5f7fb';ctx.fillRect(pad,y,totalW,rowH);} ctx.fillStyle='#172033'; row.forEach((v,i)=>{let text=String(v); const max=Math.floor((widths[i]-14)/6.5); if(text.length>max) text=text.slice(0,max-1)+'…'; ctx.fillText(text,x+8,y+25); x+=widths[i];}); ctx.strokeStyle='#dfe6f0';ctx.beginPath();ctx.moveTo(pad,y+rowH);ctx.lineTo(pad+totalW,y+rowH);ctx.stroke();y+=rowH;});
-  return canvas;
-}
-$('saveSummaryImageBtn').addEventListener('click', () => {
-  try { const canvas=buildSummaryCanvas(); canvas.toBlob(blob=>{ if(!blob){status('summaryStatus','Impossible de créer l’image.',true);return;} const url=URL.createObjectURL(blob); const w=window.open(url,'_blank'); if(!w){const a=document.createElement('a');a.href=url;a.download=`synthese-scan-chassis-${$('summaryStart').value}-${$('summaryEnd').value}.png`;a.click();} status('summaryStatus','Image créée. Sur iPhone, ouvre-la puis fais un appui long pour choisir Enregistrer dans Photos.'); setTimeout(()=>URL.revokeObjectURL(url),60000); },'image/png'); } catch(e){status('summaryStatus',e.message,true);}
-});
-$('printSummaryBtn').addEventListener('click',()=>{
-  if(!currentSummaryRows.length)return; const w=window.open('','_blank'); if(!w){status('summaryStatus','Autorise les fenêtres surgissantes pour imprimer.',true);return;}
-  const headers=['Date fiche','Client','N° commande','N° châssis','Opération','Remarque'];
-  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const body=currentSummaryRows.map(r=>`<tr>${[r.date,r.clientName,r.orderNo,r.frameNo,r.operation,r.notes].map(v=>`<td>${esc(v||'—')}</td>`).join('')}</tr>`).join('');
-  w.document.write(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>Synthèse Scan Châssis</title><style>body{font:12px Arial;padding:15px}h1{font-size:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left;overflow-wrap:anywhere}th{background:#e8efff}tr:nth-child(even){background:#f5f7fb}@media print{button{display:none}}</style><h1>Synthèse Scan Châssis</h1><p>Période : ${esc($('summaryStart').value)} au ${esc($('summaryEnd').value)}</p><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>window.print()<\/script></html>`); w.document.close();
-});
-
-const today = dateInputValue(new Date());
-$('summaryStart').value = today;
-$('summaryEnd').value = today;
-
 (async () => {
-  try {
-    await openDB();
-    await refreshRecords();
-  } catch (e) {
-    console.error("Erreur au démarrage de Scan Châssis / accès aux fiches :", e);
-    const message = "Impossible de charger les anciennes fiches : " + (e?.message || String(e)) + ". Ne supprime pas les données du navigateur. Essaie de recharger la page et conserve toute sauvegarde JSON disponible.";
-    status("formStatus", message, true);
-    const history = $("records");
-    if (history) {
-      const error = document.createElement("div");
-      error.className = "empty";
-      error.style.color = "#b91c1c";
-      error.textContent = message;
-      history.replaceChildren(error);
-    }
-  }
+  try { await openDB(); await refreshRecords(); }
+  catch (e) { status("formStatus", "Impossible d’ouvrir la base locale : " + e.message, true); }
 })();
 })();
