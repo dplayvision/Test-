@@ -25,7 +25,13 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 #cropModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.88);align-items:center;justify-content:center;padding:16px}
 .crop-panel{width:min(100%,760px);max-height:95dvh;overflow:auto;background:#fff;border-radius:18px;padding:14px}
 #cropCanvas{display:block;max-width:100%;height:auto;margin:12px auto;border-radius:8px;touch-action:none;cursor:crosshair;background:#e2e8f0}
-.crop-title{font-size:19px;font-weight:800;margin:2px 0 6px}.crop-help{font-size:13px;color:#65718a;line-height:1.4}.crop-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.crop-tools button{flex:1;min-width:110px}
+.crop-title{font-size:19px;font-weight:800;margin:2px 0 6px}.crop-help{font-size:13px;color:#65718a;line-height:1.4}
+#summaryResults{overflow-x:auto;margin-top:10px}
+#summaryResults table{width:100%;border-collapse:collapse}
+#summaryResults th,#summaryResults td{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:anywhere}
+#summaryResults th{background:#e8efff}
+input[type=date]{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;min-height:46px;background:#fff;color:var(--ink)}
+@media(max-width:420px){.actions button{min-width:100%}}
 </style>
 </head>
 <body>
@@ -60,13 +66,28 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <section class="card"><h2>4. Historique et recherche</h2><label for="searchBox">Rechercher une commande ou un châssis</label><input id="searchBox" type="search" placeholder="Tape un numéro…"><div id="records"><div class="empty">Chargement des fiches…</div></div>
 <div class="actions"><button type="button" class="secondary" id="exportBtn">📤 Exporter sauvegarde</button><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
 </main>
+<section class="card">
+<h2>5. Synthèse des opérations par date</h2>
+<p class="hint">Choisis une période pour afficher les opérations enregistrées, puis exporte le tableau, enregistre une image ou imprime-le.</p>
+<div class="grid">
+  <div><label for="summaryStart">Date de début</label><input id="summaryStart" type="date"></div>
+  <div><label for="summaryEnd">Date de fin</label><input id="summaryEnd" type="date"></div>
+</div>
+<div class="actions"><button type="button" class="primary" id="generateSummaryBtn">📋 Générer le tableau</button></div>
+<div id="summaryResults"><div class="empty">Choisis une période puis génère le tableau.</div></div>
+<div class="actions">
+  <button type="button" class="secondary" id="exportSummaryBtn" disabled>📄 Exporter CSV</button>
+  <button type="button" class="secondary" id="saveSummaryImageBtn" disabled>🖼️ Enregistrer en image</button>
+  <button type="button" class="neutral" id="printSummaryBtn" disabled>🖨️ Imprimer</button>
+</div>
+<div class="status" id="summaryStatus" aria-live="polite"></div>
+</section>
 <div id="cropModal" role="dialog" aria-modal="true" aria-label="Cadrer l’étiquette">
   <div class="crop-panel">
     <div class="crop-title">✂️ Cadrer l’étiquette</div>
-    <p class="crop-help">Essaie le cadrage automatique. Si le cadre n’est pas parfait, trace-le au doigt. Utilise le zoom pour ajuster.</p>
-    <div class="crop-tools"><button type="button" class="secondary" id="autoCropBtn">✨ Cadrage automatique</button><button type="button" class="neutral" id="zoomOutBtn">− Zoom</button><button type="button" class="neutral" id="zoomInBtn">+ Zoom</button></div>
+    <p class="crop-help">Fais glisser ton doigt sur la photo pour tracer un rectangle autour de l’étiquette, puis valide.</p>
     <canvas id="cropCanvas"></canvas>
-    <div class="actions"><button type="button" class="neutral" id="cropCancelBtn">Annuler</button><button type="button" class="primary" id="cropApplyBtn">Valider le cadrage</button></div>
+    <div class="actions"><button type="button" class="neutral" id="cropCancelBtn">Annuler</button><button type="button" class="primary" id="cropApplyBtn">Appliquer le cadrage</button></div>
   </div>
 </div>
 <footer>Les fiches sont stockées sur cet appareil. Export régulier conseillé : le navigateur peut effacer ses données.</footer>
