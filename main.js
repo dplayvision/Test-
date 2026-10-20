@@ -724,7 +724,7 @@ $("exportBtn").addEventListener("click", async () => {
     const records = await allRecords();
     const backup = { app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records };
     const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
-    const filename = `scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
+    const filename = "scan-chassis-sauvegarde.json";
     const file = new File([blob], filename, { type: "application/json" });
     // Sur iPhone, ouvre la feuille de partage afin de choisir « Enregistrer dans Fichiers ».
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
