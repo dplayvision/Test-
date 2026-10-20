@@ -724,21 +724,21 @@ $("exportBtn").addEventListener("click", async () => {
     const records = await allRecords();
     const backup = { app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records };
     const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
-    const filename = "scan-chassis-sauvegarde.json";
-    const file = new File([blob], filename, { type: "application/json" });
-    // Sur iPhone, ouvre la feuille de partage afin de choisir « Enregistrer dans Fichiers ».
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: "Sauvegarde Scan Châssis", text: "Sauvegarde des fiches et photos Scan Châssis" });
-      status("backupStatus", `${records.length} fiche(s) préparée(s). Choisis « Enregistrer dans Fichiers » dans le menu de partage.`);
-    } else {
-      const url = URL.createObjectURL(blob), a = document.createElement("a");
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-      status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus. Si demandé, choisis Enregistrer dans Fichiers.`);
-    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    // Nom fixe : garder exactement le même nom à chaque export.
+    // Utiliser le téléchargement classique de Safari plutôt que la feuille de partage,
+    // afin de retrouver le flux d'enregistrement habituel dans Fichiers sur iPhone.
+    a.href = url;
+    a.download = "scan-chassis-sauvegarde.json";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus. Nom du fichier : scan-chassis-sauvegarde.json.`);
   } catch (e) {
-    if (e && e.name === "AbortError") status("backupStatus", "Sauvegarde annulée. Aucune fiche n’a été supprimée.", true);
-    else status("backupStatus", "Échec de la sauvegarde : " + (e?.message || e), true);
+    status("backupStatus", "Échec de la sauvegarde : " + (e?.message || e), true);
   }
 });
 $("importInput").addEventListener("change", async e => {
