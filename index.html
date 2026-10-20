@@ -11,7 +11,7 @@
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
 header{padding:24px 18px 20px;background:linear-gradient(135deg,#173b82,#2563eb);color:#fff}header .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:800}header h1{margin:6px 0;font-size:27px;line-height:1.1}header p{margin:0;color:#e1eaff;font-size:14px}
 main{max-width:760px;margin:0 auto;padding:16px;display:grid;gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:var(--shadow)}h2{font-size:18px;margin:0 0 14px}label{display:block;font-weight:700;font-size:14px;margin:12px 0 6px}
-input[type=text],input[type=search],textarea{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;background:#fff;color:var(--ink);min-height:46px}input:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue)}
+input[type=text],input[type=search],input[type=date],textarea{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;background:#fff;color:var(--ink);min-height:46px}input:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue)}
 button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:750;cursor:pointer;min-height:44px}.primary{background:var(--blue);color:#fff}.primary:active{background:var(--blue2)}.secondary{background:#e8efff;color:#1e40af}.danger{background:#fee2e2;color:#991b1b}.neutral{background:#edf1f7;color:#243047}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{flex:1}.hint{color:var(--muted);font-size:12px;line-height:1.45;margin:7px 0 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .op{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfcff;font-weight:650;font-size:14px;line-height:1.3}.op input{width:20px;height:20px;flex-shrink:0;accent-color:var(--blue);margin:0}
@@ -21,11 +21,8 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 .field{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap}
 #ocrResult{font-weight:500;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 #ocrEditor{display:none;width:100%;min-height:150px;margin-top:10px;white-space:pre-wrap;resize:vertical}
-.ocr-actions{margin-top:10px}.ocr-actions button{flex:1}
-#cropModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.88);align-items:center;justify-content:center;padding:16px}
-.crop-panel{width:min(100%,760px);max-height:95dvh;overflow:auto;background:#fff;border-radius:18px;padding:14px}
-#cropCanvas{display:block;max-width:100%;height:auto;margin:12px auto;border-radius:8px;touch-action:none;cursor:crosshair;background:#e2e8f0}
-.crop-title{font-size:19px;font-weight:800;margin:2px 0 6px}.crop-help{font-size:13px;color:#65718a;line-height:1.4}.crop-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.crop-tools button{flex:1;min-width:110px}
+.ocr-actions{margin-top:10px}
+.ocr-actions button{flex:1}
 </style>
 </head>
 <body>
@@ -42,43 +39,28 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
   <button type="button" class="secondary" id="rotateRightBtn">↷ Tourner à droite</button>
 </div>
 <p class="hint">Tourne la photo par quarts de tour avant de lancer la lecture. La photo originale enregistrée reste inchangée.</p>
-<div class="actions">
-  <button type="button" class="secondary" id="cropBtn">✂️ Cadrer l’étiquette</button>
-</div>
-<p class="hint">Trace un cadre autour de l’étiquette. Le recadrage sert à la lecture OCR ; la photo originale reste enregistrée dans la fiche.</p>
 <div class="actions"><button type="button" class="primary" id="readLabelBtn">🔎 Lire le texte de la photo</button><button type="button" class="secondary" id="barcodeBtn">▥ Lire le code-barres de la photo</button><button type="button" class="neutral" id="clearPhotoBtn">Retirer la photo</button></div>
 <div class="status" id="scanStatus" aria-live="polite"></div>
-<div class="field"><strong>Texte brut reconnu :</strong><div id="ocrResult">Le texte reconnu apparaîtra ici.</div>
-<textarea id="ocrEditor" rows="7" aria-label="Modifier le texte brut reconnu"></textarea>
-<div class="actions ocr-actions"><button type="button" class="secondary" id="editOcrBtn">✏️ Modifier</button><button type="button" class="primary" id="saveOcrEditBtn" style="display:none">💾 Valider</button><button type="button" class="neutral" id="cancelOcrEditBtn" style="display:none">Annuler</button><button type="button" class="secondary" id="copyOcrBtn">📋 Copier le texte brut</button></div>
-<p class="hint">Tu peux corriger le texte avant d’enregistrer. Les corrections seront conservées dans la fiche.</p></div>
+<div class="field">
+  <strong>Texte brut reconnu :</strong>
+  <div id="ocrResult">Le texte reconnu apparaîtra ici.</div>
+  <textarea id="ocrEditor" rows="7" aria-label="Modifier le texte brut reconnu"></textarea>
+  <div class="actions ocr-actions">
+    <button type="button" class="secondary" id="editOcrBtn">✏️ Modifier</button>
+    <button type="button" class="primary" id="saveOcrEditBtn" style="display:none">💾 Valider</button>
+    <button type="button" class="neutral" id="cancelOcrEditBtn" style="display:none">Annuler</button>
+    <button type="button" class="secondary" id="copyOcrBtn">📋 Copier le texte brut</button>
+  </div>
+  <p class="hint">Tu peux corriger le texte avant d’enregistrer. Les corrections seront conservées dans la fiche.</p>
+</div>
 </section>
 <section class="card"><h2>2. Informations de la commande</h2><label for="clientName">Nom du client</label><input id="clientName" type="text" autocomplete="off" placeholder="Reconnu automatiquement si possible"><label for="orderNo">Numéro de commande *</label><input id="orderNo" type="text" autocomplete="off" placeholder="Ex. : 26CR02781"><label for="frameNo">Numéro du châssis *</label><input id="frameNo" type="text" autocomplete="off" placeholder="Scanner ou encoder le numéro"><p class="hint">Les champs peuvent être corrigés manuellement après la lecture.</p></section>
 <section class="card"><h2>3. Opérations à effectuer</h2><div class="grid" id="operations">
 <label class="op"><input type="checkbox" value="Empilage"> <span>Empilage</span></label><label class="op"><input type="checkbox" value="Double empilage"> <span>Double empilage</span></label><label class="op"><input type="checkbox" value="Retour"> <span>Retour</span></label><label class="op"><input type="checkbox" value="Double retour"> <span>Double retour</span></label><label class="op"><input type="checkbox" value="Soudage / Nettoyage ouvrants"> <span>Soudage / Nettoyage ouvrants</span></label><label class="op"><input type="checkbox" value="Soudage / Nettoyage dormants"> <span>Soudage / Nettoyage dormants</span></label></div>
 <label for="notes">Remarque (facultatif)</label><textarea id="notes" rows="2" placeholder="Une précision si nécessaire"></textarea><div class="actions"><button type="button" class="primary" id="saveBtn">💾 Enregistrer la fiche</button><button type="button" class="neutral" id="resetBtn">Nouvelle fiche / Effacer</button></div><div class="status" id="formStatus" aria-live="polite"></div></section>
-<section class="card"><h2>4. Synthèse par période</h2>
-<p class="hint">Choisis une période pour afficher les commandes et opérations enregistrées. Les lignes identiques sont regroupées pour éviter les doublons.</p>
-<div class="grid">
-  <div><label for="summaryStart">Date de début</label><input id="summaryStart" type="date"></div>
-  <div><label for="summaryEnd">Date de fin</label><input id="summaryEnd" type="date"></div>
-</div>
-<div class="actions"><button type="button" class="primary" id="generateSummaryBtn">📋 Générer le tableau</button><button type="button" class="secondary" id="exportSummaryBtn" disabled>📊 Exporter CSV / Excel</button></div>
-<div class="status" id="summaryStatus" aria-live="polite"></div>
-<div id="summaryResults"></div>
-</section>
+<section class="card"><h2>4. Synthèse par période</h2><p class="hint">Choisis une période pour afficher les commandes et opérations enregistrées. Les lignes identiques sont regroupées pour éviter les doublons.</p><div class="grid"><div><label for="summaryStart">Date de début</label><input id="summaryStart" type="date" required></div><div><label for="summaryEnd">Date de fin</label><input id="summaryEnd" type="date" required></div></div><div class="actions"><button type="button" class="primary" id="generateSummaryBtn">📋 Générer le tableau</button><button type="button" class="secondary" id="exportSummaryBtn" disabled>📊 Exporter CSV / Excel</button></div><div class="actions"><button type="button" class="secondary" id="saveSummaryImageBtn" disabled>📸 Enregistrer le tableau en image</button><button type="button" class="neutral" id="printSummaryBtn" disabled>🖨️ Imprimer / PDF</button></div><div class="status" id="summaryStatus" aria-live="polite"></div><div id="summaryResults"></div></section>
 <section class="card"><h2>5. Historique et recherche</h2><label for="searchBox">Rechercher une commande ou un châssis</label><input id="searchBox" type="search" placeholder="Tape un numéro…"><div id="records"><div class="empty">Chargement des fiches…</div></div>
-<div class="actions"><button type="button" class="secondary" id="exportBtn">📤 Exporter sauvegarde JSON</button><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
-</main>
-<div id="cropModal" role="dialog" aria-modal="true" aria-label="Cadrer l’étiquette">
-  <div class="crop-panel">
-    <div class="crop-title">✂️ Cadrer l’étiquette</div>
-    <p class="crop-help">Essaie le cadrage automatique. Si le cadre n’est pas parfait, trace-le au doigt. Utilise le zoom pour ajuster.</p>
-    <div class="crop-tools"><button type="button" class="secondary" id="autoCropBtn">✨ Cadrage automatique</button><button type="button" class="neutral" id="zoomOutBtn">− Zoom</button><button type="button" class="neutral" id="zoomInBtn">+ Zoom</button></div>
-    <canvas id="cropCanvas"></canvas>
-    <div class="actions"><button type="button" class="neutral" id="cropCancelBtn">Annuler</button><button type="button" class="primary" id="cropApplyBtn">Valider le cadrage</button></div>
-  </div>
-</div>
-<footer>Les fiches sont stockées sur cet appareil. Export régulier conseillé : le navigateur peut effacer ses données.</footer>
+<div class="actions"><button type="button" class="secondary" id="exportBtn">📤 Exporter sauvegarde</button><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
+</main><footer>Les fiches sont stockées sur cet appareil. Export régulier conseillé : le navigateur peut effacer ses données.</footer>
 </body>
 </html>
