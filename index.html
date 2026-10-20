@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f3f6fb">
 <title>Scan Châssis — Test PaddleOCR</title>
-<script type="module" src="/main.js"></script>
+<script type="module" src="./main.js"></script>
 <style>
 :root{--bg:#f3f6fb;--card:#fff;--ink:#172033;--muted:#65718a;--line:#dfe6f0;--blue:#2563eb;--blue2:#1d4ed8;--green:#15803d;--red:#b91c1c;--shadow:0 8px 28px rgba(28,45,80,.08)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
-header{padding:24px 18px 20px;background:linear-gradient(135deg,#173b82,#2563eb);color:#fff}header .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:800}header h1{margin:6px 0;font-size:27px;line-height:1.1}header p{margin:0;color:#e1eaff;font-size:14px}
+header{padding:18px;background:linear-gradient(135deg,#173b82,#2563eb);color:#fff} .header-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px} .header-copy{min-width:0} #exportBtn{flex-shrink:0;background:#fff;color:#1d4ed8;padding:10px 12px;min-height:42px;font-size:13px} @media(max-width:420px){.header-top{align-items:center} #exportBtn{max-width:125px;white-space:normal;font-size:12px;padding:8px}}header .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:800}header h1{margin:6px 0;font-size:27px;line-height:1.1}header p{margin:0;color:#e1eaff;font-size:14px}
 main{max-width:760px;margin:0 auto;padding:16px;display:grid;gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:var(--shadow)}h2{font-size:18px;margin:0 0 14px}label{display:block;font-weight:700;font-size:14px;margin:12px 0 6px}
 input[type=text],input[type=search],textarea{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;background:#fff;color:var(--ink);min-height:46px}input:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue)}
 button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:750;cursor:pointer;min-height:44px}.primary{background:var(--blue);color:#fff}.primary:active{background:var(--blue2)}.secondary{background:#e8efff;color:#1e40af}.danger{background:#fee2e2;color:#991b1b}.neutral{background:#edf1f7;color:#243047}
@@ -29,7 +29,7 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 </style>
 </head>
 <body>
-<header><div class="eyebrow">Atelier • Suivi de production</div><h1>📷 Scan Châssis</h1><p>Scanne l’étiquette, coche les opérations et retrouve chaque fiche.</p></header>
+<header><div class="header-top"><div class="header-copy"><div class="eyebrow">Atelier • Suivi de production</div><h1>📷 Scan Châssis</h1><p>Scanne l’étiquette, coche les opérations et retrouve chaque fiche.</p></div><button type="button" id="exportBtn">💾 Sauvegarder</button></div></header>
 <main>
 <section class="card"><h2>1. Étiquette originale</h2>
 <div class="actions" style="margin-top:0"><button type="button" class="primary" id="startScanBtn">📷 Ouvrir le scanner en direct</button><button type="button" class="secondary" id="captureBtn" disabled>📸 Capturer l’étiquette</button><button type="button" class="neutral" id="stopScanBtn" disabled>Fermer la caméra</button></div>
@@ -58,7 +58,7 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <label class="op"><input type="checkbox" value="Empilage"> <span>Empilage</span></label><label class="op"><input type="checkbox" value="Double empilage"> <span>Double empilage</span></label><label class="op"><input type="checkbox" value="Retour"> <span>Retour</span></label><label class="op"><input type="checkbox" value="Double retour"> <span>Double retour</span></label><label class="op"><input type="checkbox" value="Soudage / Nettoyage ouvrants"> <span>Soudage / Nettoyage ouvrants</span></label><label class="op"><input type="checkbox" value="Soudage / Nettoyage dormants"> <span>Soudage / Nettoyage dormants</span></label></div>
 <label for="notes">Remarque (facultatif)</label><textarea id="notes" rows="2" placeholder="Une précision si nécessaire"></textarea><div class="actions"><button type="button" class="primary" id="saveBtn">💾 Enregistrer la fiche</button><button type="button" class="neutral" id="resetBtn">Nouvelle fiche / Effacer</button></div><div class="status" id="formStatus" aria-live="polite"></div></section>
 <section class="card"><h2>4. Historique et recherche</h2><label for="searchBox">Rechercher une commande ou un châssis</label><input id="searchBox" type="search" placeholder="Tape un numéro…"><div id="records"><div class="empty">Chargement des fiches…</div></div>
-<div class="actions"><button type="button" class="secondary" id="exportBtn">📤 Exporter sauvegarde</button><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
+<div class="actions"><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
 </main>
 <section class="card">
 <h2>5. Tableau récapitulatif par date</h2>
