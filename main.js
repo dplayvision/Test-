@@ -1,4 +1,4 @@
-import { PaddleOCR } from "@paddleocr/paddleocr-js";
+import { PaddleOCR } from "https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js/+esm";
 
 (() => {
 "use strict";
