@@ -122,13 +122,51 @@ function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function renderRecord(record) {
-  const article = document.createElement("article"); article.className = "record";
+  const article = document.createElement("article");
+  article.className = "record";
   const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
-  const rawTextBlock = record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : "";
-  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p><p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opération(s)</span></div><p>${ops || "Aucune opération cochée"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${rawTextBlock}${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}<div class="actions"><button type="button" class="secondary edit">✏️ Modifier</button><button type="button" class="danger delete">🗑️ Supprimer</button></div>`;
+  const noteBlock = record.notes && record.notes.trim()
+    ? `<p><strong>Remarque :</strong> ${escapeHTML(record.notes)}</p>`
+    : "";
+  const details = `
+    <div class="record-details" hidden>
+      <p><strong>Client :</strong> ${escapeHTML(record.clientName || "—")}</p>
+      <p><strong>Texte reconnu :</strong></p>
+      <div style="white-space:pre-wrap;overflow-wrap:anywhere">${record.ocrText ? escapeHTML(record.ocrText) : "Aucun texte reconnu enregistré."}</div>
+      ${record.photo
+        ? `<img alt="Photo originale de l’étiquette" src="${record.photo}" style="display:block;max-width:100%;height:auto;margin-top:10px;border-radius:8px">`
+        : "<p>Aucune photo enregistrée.</p>"}
+      <p><strong>Date :</strong> ${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p>
+    </div>`;
+  article.innerHTML = `
+    <div class="record-top">
+      <div>
+        <button type="button" class="record-open" aria-expanded="false" style="background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;cursor:pointer">
+          <h3 style="display:inline">Commande ${escapeHTML(record.orderNo)}</h3>
+          <span class="toggle-label"> ▾ Voir les détails</span>
+        </button>
+        <p><strong>Numéro V :</strong> ${escapeHTML(record.frameNo)}</p>
+      </div>
+    </div>
+    <p><strong>Opération :</strong> ${ops || "Aucune opération cochée"}</p>
+    ${noteBlock}
+    ${details}
+    <div class="actions">
+      <button type="button" class="secondary edit">✏️ Modifier</button>
+      <button type="button" class="danger delete">🗑️ Supprimer</button>
+    </div>`;
+  const openButton = article.querySelector(".record-open");
+  const detailsBlock = article.querySelector(".record-details");
+  const toggleLabel = article.querySelector(".toggle-label");
+  openButton.addEventListener("click", () => {
+    const opening = detailsBlock.hidden;
+    detailsBlock.hidden = !opening;
+    openButton.setAttribute("aria-expanded", String(opening));
+    toggleLabel.textContent = opening ? " ▴ Masquer les détails" : " ▾ Voir les détails";
+  });
   article.querySelector(".edit").addEventListener("click", () => loadForm(record));
   article.querySelector(".delete").addEventListener("click", async () => {
-    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, châssis ${record.frameNo} ?`)) return;
+    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, numéro V ${record.frameNo} ?`)) return;
     try { await deleteRecord(record.id); await refreshRecords(); if (editingId === record.id) resetForm(); }
     catch (e) { alert("Impossible de supprimer la fiche : " + e.message); }
   });
