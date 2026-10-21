@@ -316,6 +316,22 @@ function extractFields(raw) {
       }
     }
   }
+
+  // Code court WAKO : généralement 3 chiffres (ex. 006) ou P + 3 chiffres
+  // (ex. P009), imprimé en gras au-dessus de la grande lettre G/H/B/D.
+  // On accepte uniquement une ligne OCR dédiée pour éviter de prendre la commande,
+  // une date ou un numéro long présent ailleurs sur l'étiquette.
+  if (!chassis) {
+    for (const line of upperLines) {
+      const compact = line.replace(/\s+/g, "").replace(/[|]/g, "1");
+      const normalized = compact.replace(/^[OQ](?=\d{2}$)/, "0");
+      const match = normalized.match(/^(P?\d{3})$/);
+      if (match) {
+        chassis = match[1];
+        break;
+      }
+    }
+  }
   return { lines, order, client, chassis };
 }
 function applyExtractedFields(raw) {
