@@ -1,3 +1,5 @@
+import { PaddleOCR } from "@paddleocr/paddleocr-js";
+
 (() => {
 "use strict";
 
@@ -120,51 +122,13 @@ function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function renderRecord(record) {
-  const article = document.createElement("article");
-  article.className = "record";
+  const article = document.createElement("article"); article.className = "record";
   const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
-  const noteBlock = record.notes && record.notes.trim()
-    ? `<p><strong>Remarque :</strong> ${escapeHTML(record.notes)}</p>`
-    : "";
-  const details = `
-    <div class="record-details" hidden>
-      <p><strong>Client :</strong> ${escapeHTML(record.clientName || "—")}</p>
-      <p><strong>Texte reconnu :</strong></p>
-      <div style="white-space:pre-wrap;overflow-wrap:anywhere">${record.ocrText ? escapeHTML(record.ocrText) : "Aucun texte reconnu enregistré."}</div>
-      ${record.photo
-        ? `<img alt="Photo originale de l’étiquette" src="${record.photo}" style="display:block;max-width:100%;height:auto;margin-top:10px;border-radius:8px">`
-        : "<p>Aucune photo enregistrée.</p>"}
-      <p><strong>Date :</strong> ${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p>
-    </div>`;
-  article.innerHTML = `
-    <div class="record-top">
-      <div>
-        <button type="button" class="record-open" aria-expanded="false" style="background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;cursor:pointer">
-          <h3 style="display:inline">Commande ${escapeHTML(record.orderNo)}</h3>
-          <span class="toggle-label"> ▾ Voir les détails</span>
-        </button>
-        <p><strong>Numéro :</strong> ${escapeHTML(record.frameNo)}</p>
-      </div>
-    </div>
-    <p><strong>Opération :</strong> ${ops || "Aucune opération cochée"}</p>
-    ${noteBlock}
-    ${details}
-    <div class="actions">
-      <button type="button" class="secondary edit">✏️ Modifier</button>
-      <button type="button" class="danger delete">🗑️ Supprimer</button>
-    </div>`;
-  const openButton = article.querySelector(".record-open");
-  const detailsBlock = article.querySelector(".record-details");
-  const toggleLabel = article.querySelector(".toggle-label");
-  openButton.addEventListener("click", () => {
-    const opening = detailsBlock.hidden;
-    detailsBlock.hidden = !opening;
-    openButton.setAttribute("aria-expanded", String(opening));
-    toggleLabel.textContent = opening ? " ▴ Masquer les détails" : " ▾ Voir les détails";
-  });
+  const rawTextBlock = record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : "";
+  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p><p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opération(s)</span></div><p>${ops || "Aucune opération cochée"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${rawTextBlock}${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}<div class="actions"><button type="button" class="secondary edit">✏️ Modifier</button><button type="button" class="danger delete">🗑️ Supprimer</button></div>`;
   article.querySelector(".edit").addEventListener("click", () => loadForm(record));
   article.querySelector(".delete").addEventListener("click", async () => {
-    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, numéro V ${record.frameNo} ?`)) return;
+    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, châssis ${record.frameNo} ?`)) return;
     try { await deleteRecord(record.id); await refreshRecords(); if (editingId === record.id) resetForm(); }
     catch (e) { alert("Impossible de supprimer la fiche : " + e.message); }
   });
@@ -314,22 +278,6 @@ function extractFields(raw) {
       }
     }
   }
-
-  // Code court WAKO : généralement 3 chiffres (ex. 006) ou P + 3 chiffres
-  // (ex. P009), imprimé en gras au-dessus de la grande lettre G/H/B/D.
-  // On accepte uniquement une ligne OCR dédiée pour éviter de prendre la commande,
-  // une date ou un numéro long présent ailleurs sur l'étiquette.
-  if (!chassis) {
-    for (const line of upperLines) {
-      const compact = line.replace(/\s+/g, "").replace(/[|]/g, "1");
-      const normalized = compact.replace(/^[OQ](?=\d{2}$)/, "0");
-      const match = normalized.match(/^(P?\d{3})$/);
-      if (match) {
-        chassis = match[1];
-        break;
-      }
-    }
-  }
   return { lines, order, client, chassis };
 }
 function applyExtractedFields(raw) {
@@ -390,54 +338,50 @@ function openCropper() {
 }
 function autoDetectLabel() {
   if (!cropImage) return;
-  const sample = document.createElement("canvas"), maxSide = 360;
+  const sample = document.createElement("canvas"), maxSide = 240;
   const scale = Math.min(1, maxSide / Math.max(cropImage.naturalWidth, cropImage.naturalHeight));
   sample.width = Math.max(1, Math.round(cropImage.naturalWidth * scale));
   sample.height = Math.max(1, Math.round(cropImage.naturalHeight * scale));
   const sctx = sample.getContext("2d", { willReadFrequently: true });
   sctx.drawImage(cropImage, 0, 0, sample.width, sample.height);
-  const { data } = sctx.getImageData(0, 0, sample.width, sample.height);
-  const w = sample.width, h = sample.height;
-  const cell = Math.max(4, Math.round(Math.min(w, h) / 36));
-  const cols = Math.ceil(w / cell), rows = Math.ceil(h / cell);
-  const density = new Uint16Array(cols * rows), gray = new Uint8Array(w * h);
-  for (let i = 0, j = 0; i < w * h; i++, j += 4) gray[i] = Math.round(0.299 * data[j] + 0.587 * data[j + 1] + 0.114 * data[j + 2]);
-
-  // Repère les contours du texte et de l'étiquette, même si l'étiquette n'est pas blanche.
-  let edgeTotal = 0;
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const i = y * w + x;
-      const edge = Math.abs(gray[i] - gray[i - 1]) + Math.abs(gray[i] - gray[i - w]);
-      if (edge > 48) { density[Math.floor(y / cell) * cols + Math.floor(x / cell)]++; edgeTotal++; }
+  const data = sctx.getImageData(0, 0, sample.width, sample.height).data;
+  const w = sample.width, h = sample.height, seen = new Uint8Array(w*h);
+  let best = null, bestScore = 0;
+  for (let y=0; y<h; y++) for (let x=0; x<w; x++) {
+    const start=y*w+x, p=start*4;
+    if (seen[start]) continue;
+    const r=data[p], g=data[p+1], b=data[p+2];
+    if (!(r>205 && g>205 && b>200 && Math.max(r,g,b)-Math.min(r,g,b)<45)) { seen[start]=1; continue; }
+    const stack=[start]; seen[start]=1; let minX=x,maxX=x,minY=y,maxY=y,count=0;
+    while(stack.length) {
+      const idx=stack.pop(), px=idx%w, py=Math.floor(idx/w); count++;
+      if(px<minX)minX=px;if(px>maxX)maxX=px;if(py<minY)minY=py;if(py>maxY)maxY=py;
+      const neighbors=[idx-1,idx+1,idx-w,idx+w];
+      for(const ni of neighbors){
+        if(ni<0||ni>=w*h||seen[ni])continue;
+        const nx=ni%w, ny=Math.floor(ni/w); if(Math.abs(nx-px)+Math.abs(ny-py)!==1)continue;
+        const q=ni*4, rr=data[q],gg=data[q+1],bb=data[q+2]; seen[ni]=1;
+        if(rr>205&&gg>205&&bb>200&&Math.max(rr,gg,bb)-Math.min(rr,gg,bb)<45) stack.push(ni);
+      }
     }
+    const bw=maxX-minX+1,bh=maxY-minY+1,area=bw*bh, fraction=area/(w*h), aspect=bw/bh;
+    if(fraction<0.012||fraction>0.72||count<area*0.45)continue;
+    const rectangularity=count/area;
+    const score=count * rectangularity * (aspect>0.08&&aspect<8 ? 1 : 0.25);
+    if(score>bestScore){bestScore=score;best={x:minX,y:minY,w:bw,h:bh};}
   }
-  const threshold = Math.max(2, Math.round(cell * 0.12));
-  let minX = cols, minY = rows, maxX = -1, maxY = -1, active = 0;
-  for (let cy = 0; cy < rows; cy++) {
-    for (let cx = 0; cx < cols; cx++) {
-      if (density[cy * cols + cx] < threshold) continue;
-      active++;
-      minX = Math.min(minX, cx); minY = Math.min(minY, cy);
-      maxX = Math.max(maxX, cx); maxY = Math.max(maxY, cy);
-    }
-  }
-  const boxW = (maxX - minX + 1) * cell, boxH = (maxY - minY + 1) * cell;
-  const fraction = boxW * boxH / (w * h), aspect = boxW / Math.max(1, boxH);
-  const valid = edgeTotal > 10 && active >= 3 && fraction >= 0.025 && fraction <= 0.88 && aspect >= 0.15 && aspect <= 8;
-  if (valid) {
-    const sx = $("cropCanvas").width / w, sy = $("cropCanvas").height / h;
-    const rawX = minX * cell, rawY = minY * cell;
-    const padX = Math.max(4, boxW * 0.10), padY = Math.max(4, boxH * 0.14);
-    const x = Math.max(0, rawX - padX), y = Math.max(0, rawY - padY);
-    const right = Math.min(w, (maxX + 1) * cell + padX), bottom = Math.min(h, (maxY + 1) * cell + padY);
-    cropRect = { x: x * sx, y: y * sy, w: (right - x) * sx, h: (bottom - y) * sy };
+  if(best){
+    const sx=$("cropCanvas").width/w, sy=$("cropCanvas").height/h;
+    const padX=Math.max(3,best.w*0.035), padY=Math.max(3,best.h*0.035);
+    const x=Math.max(0,best.x-padX), y=Math.max(0,best.y-padY);
+    const right=Math.min(w,best.x+best.w+padX), bottom=Math.min(h,best.y+best.h+padY);
+    cropRect={x:x*sx,y:y*sy,w:(right-x)*sx,h:(bottom-y)*sy};
     drawCropOverlay();
-    status("scanStatus", "Cadrage automatique amélioré proposé autour du texte et des contours. Vérifie le cadre et ajuste-le au doigt si besoin.");
+    status("scanStatus","Cadrage automatique proposé. Vérifie les bords et ajuste au doigt si nécessaire.");
   } else {
-    cropRect = { x: $("cropCanvas").width * 0.08, y: $("cropCanvas").height * 0.08, w: $("cropCanvas").width * 0.84, h: $("cropCanvas").height * 0.84 };
+    cropRect={x:$("cropCanvas").width*0.12,y:$("cropCanvas").height*0.12,w:$("cropCanvas").width*0.76,h:$("cropCanvas").height*0.76};
     drawCropOverlay();
-    status("scanStatus", "Étiquette difficile à isoler automatiquement. Un cadre plus large est proposé : ajuste-le au doigt.", true);
+    status("scanStatus","Je n’ai pas isolé les bords avec certitude. Un cadre de départ est proposé : ajuste-le au doigt.",true);
   }
 }
 function adjustCropZoom(factor) {
@@ -572,11 +516,6 @@ async function runOCR() {
     $("preview").src = savedPhoto; $("preview").style.display = "block";
     status("scanStatus", "Chargement du moteur OCR…");
     if (!ocrInstance) {
-      // Charger PaddleOCR uniquement au moment de lancer l’OCR.
-      // Ainsi, une panne du CDN OCR ne bloque plus les boutons de sauvegarde/import.
-      const paddleModule = await import("https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js/+esm");
-      const PaddleOCR = paddleModule.PaddleOCR;
-      if (!PaddleOCR || typeof PaddleOCR.create !== "function") throw new Error("Le moteur PaddleOCR n’est pas disponible depuis le CDN.");
       ocrInstance = await PaddleOCR.create({
         lang: "en", ocrVersion: "PP-OCRv5",
         ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
@@ -781,101 +720,50 @@ $("saveBtn").addEventListener("click", async () => {
 $("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
 $("searchBox").addEventListener("input", refreshRecords);
 $("exportBtn").addEventListener("click", async () => {
-  let url = null;
   try {
-    status("backupStatus", "Préparation de la sauvegarde…");
-    if (!db) await openDB();
     const records = await allRecords();
     const backup = { app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records };
-    const blob = new Blob([JSON.stringify(backup)], { type: "application/json;charset=utf-8" });
-
-    // iPhone/iPad : proposer la feuille de partage afin de pouvoir enregistrer dans Fichiers.
-    const file = new File([blob], "scan-chassis-sauvegarde.json", { type: "application/json" });
-    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
-      await navigator.share({ files: [file], title: "Sauvegarde Scan Châssis" });
-      status("backupStatus", `Sauvegarde prête : ${records.length} fiche(s), photos comprises. Dans le menu de partage, choisis « Enregistrer dans Fichiers ».`);
-      return;
-    }
-
-    url = URL.createObjectURL(blob);
+    const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    // Nom fixe : garder exactement le même nom à chaque export.
+    // Utiliser le téléchargement classique de Safari plutôt que la feuille de partage,
+    // afin de retrouver le flux d'enregistrement habituel dans Fichiers sur iPhone.
     a.href = url;
     a.download = "scan-chassis-sauvegarde.json";
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 120000);
-    status("backupStatus", `Sauvegarde préparée : ${records.length} fiche(s), photos comprises. Vérifie l’app Fichiers > Téléchargements.`);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus. Nom du fichier : scan-chassis-sauvegarde.json.`);
   } catch (e) {
-    if (e && e.name === "AbortError") {
-      status("backupStatus", "Sauvegarde annulée. Aucune fiche n’a été supprimée.", true);
-    } else {
-      console.error("Export sauvegarde impossible", e);
-      status("backupStatus", "Échec de la sauvegarde : " + (e?.message || String(e)), true);
-    }
+    status("backupStatus", "Échec de la sauvegarde : " + (e?.message || e), true);
   }
 });
-
-const importInput = $("importInput");
-if (importInput) {
-  importInput.addEventListener("change", async e => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) {
-      status("backupStatus", "Aucun fichier sélectionné. Choisis le fichier JSON dans Fichiers.", true);
-      return;
-    }
-    status("backupStatus", `Fichier reçu : ${file.name} (${Math.round(file.size / 1024)} Ko). Lecture…`);
-    try {
-      if (!db) await openDB();
-      const content = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("Impossible de lire le fichier sur l’iPhone."));
-        reader.onabort = () => reject(new Error("Lecture du fichier annulée."));
-        reader.readAsText(file, "UTF-8");
-      });
-      const parsed = JSON.parse(content.replace(/^\uFEFF/, ""));
-      if (!parsed || !Array.isArray(parsed.records)) throw new Error("Ce fichier n’est pas une sauvegarde Scan Châssis valide.");
-      const valid = parsed.records.filter(item => item && item.orderNo != null && item.frameNo != null && String(item.orderNo).trim() && String(item.frameNo).trim());
-      if (!valid.length) throw new Error("Aucune fiche valide trouvée dans ce fichier.");
-      if (!confirm(`Sauvegarde trouvée : ${valid.length} fiche(s). Les fiches actuelles seront conservées. Continuer ?`)) {
-        status("backupStatus", "Importation annulée. Les fiches actuelles sont conservées.");
-        return;
-      }
+$("importInput").addEventListener("change", async e => {
+  const file = e.target.files?.[0]; if (!file) return;
+  if (!confirm("Importer cette sauvegarde ? Les fiches existantes seront conservées.")) { e.target.value = ""; return; }
+  try {
+    const parsed = JSON.parse(await file.text());
+    if (!Array.isArray(parsed.records)) throw new Error("Format de sauvegarde invalide.");
+    let added = 0, skipped = 0;
+    for (const item of parsed.records) {
+      if (!item?.orderNo || !item?.frameNo) { skipped++; continue; }
       const existing = await allRecords();
-      let added = 0, skipped = 0;
-      for (const item of valid) {
-        const operations = OPS.filter(op => Array.isArray(item.operations) && item.operations.includes(op));
-        const duplicate = existing.some(r =>
-          String(r.orderNo) === String(item.orderNo) &&
-          String(r.frameNo) === String(item.frameNo) &&
-          JSON.stringify(r.operations || []) === JSON.stringify(operations)
-        );
-        if (duplicate) { skipped++; continue; }
-        await saveRecord({
-          clientName: String(item.clientName || ""),
-          orderNo: String(item.orderNo),
-          frameNo: String(item.frameNo),
-          operations,
-          notes: String(item.notes || ""),
-          ocrText: String(item.ocrText || ""),
-          photo: typeof item.photo === "string" ? item.photo : null,
-          photoType: String(item.photoType || "image/jpeg"),
-          createdAt: Number(item.createdAt) || Date.now(),
-          updatedAt: Number(item.updatedAt) || Number(item.createdAt) || Date.now()
-        });
-        added++;
-      }
-      await refreshRecords();
-      status("backupStatus", `Import terminé : ${added} fiche(s) ajoutée(s), ${skipped} doublon(s) ignoré(s). Les fiches existantes ont été conservées.`);
-    } catch (err) {
-      console.error("Import sauvegarde impossible", err);
-      status("backupStatus", "Import impossible : " + (err?.message || String(err)), true);
-    } finally {
-      e.target.value = "";
+      if (existing.some(r => r.orderNo === item.orderNo && r.frameNo === item.frameNo && JSON.stringify(r.operations || []) === JSON.stringify(item.operations || []))) { skipped++; continue; }
+      await saveRecord({
+        clientName: String(item.clientName || ""), orderNo: String(item.orderNo), frameNo: String(item.frameNo),
+        operations: OPS.filter(op => (item.operations || []).includes(op)), notes: String(item.notes || ""),
+        ocrText: String(item.ocrText || ""), photo: item.photo || null, photoType: item.photoType || "image/jpeg",
+        createdAt: Number(item.createdAt) || Date.now(), updatedAt: Number(item.updatedAt) || Date.now()
+      });
+      added++;
     }
-  });
-}
+    await refreshRecords(); status("backupStatus", `Import terminé : ${added} ajoutée(s), ${skipped} ignorée(s).`);
+  } catch (err) { status("backupStatus", "Import impossible : " + err.message, true); }
+  finally { e.target.value = ""; }
+});
 let currentSummaryRows = [];
 function dateInputValue(date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
