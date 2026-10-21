@@ -145,7 +145,7 @@ function renderRecord(record) {
           <h3 style="display:inline">Commande ${escapeHTML(record.orderNo)}</h3>
           <span class="toggle-label"> ▾ Voir les détails</span>
         </button>
-        <p><strong>Numéro V :</strong> ${escapeHTML(record.frameNo)}</p>
+        <p><strong>Numéro :</strong> ${escapeHTML(record.frameNo)}</p>
       </div>
     </div>
     <p><strong>Opération :</strong> ${ops || "Aucune opération cochée"}</p>
