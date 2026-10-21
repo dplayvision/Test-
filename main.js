@@ -1,5 +1,3 @@
-let PaddleOCR = null;
-
 (() => {
 "use strict";
 
@@ -574,15 +572,11 @@ async function runOCR() {
     $("preview").src = savedPhoto; $("preview").style.display = "block";
     status("scanStatus", "Chargement du moteur OCR…");
     if (!ocrInstance) {
-      // Charge le moteur OCR uniquement quand on lance une lecture. Ainsi, si le CDN
-      // OCR est indisponible, les boutons Sauvegarder et Importer restent fonctionnels.
-      if (!PaddleOCR) {
-        const paddleModule = await import("https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js/+esm");
-        PaddleOCR = paddleModule.PaddleOCR;
-        if (!PaddleOCR || typeof PaddleOCR.create !== "function") {
-          throw new Error("Le moteur OCR n’a pas pu être chargé depuis le CDN.");
-        }
-      }
+      // Charger PaddleOCR uniquement au moment de lancer l’OCR.
+      // Ainsi, une panne du CDN OCR ne bloque plus les boutons de sauvegarde/import.
+      const paddleModule = await import("https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js/+esm");
+      const PaddleOCR = paddleModule.PaddleOCR;
+      if (!PaddleOCR || typeof PaddleOCR.create !== "function") throw new Error("Le moteur PaddleOCR n’est pas disponible depuis le CDN.");
       ocrInstance = await PaddleOCR.create({
         lang: "en", ocrVersion: "PP-OCRv5",
         ortOptions: { backend: "wasm", wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/" }
@@ -786,105 +780,94 @@ $("saveBtn").addEventListener("click", async () => {
 });
 $("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
 $("searchBox").addEventListener("input", refreshRecords);
-// Sauvegarde : exporte les fiches et les photos incluses dans IndexedDB.
+// Sauvegarde / import : gestion compatible iPhone Safari.
 $("exportBtn").addEventListener("click", async () => {
-  status("backupStatus", "Préparation de la sauvegarde…");
   try {
+    status("backupStatus", "Préparation de la sauvegarde…");
     if (!db) await openDB();
     const records = await allRecords();
-    const backup = {
-      app: "Scan Châssis",
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      records
-    };
+    const backup = { app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records };
     const blob = new Blob([JSON.stringify(backup)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "scan-chassis-sauvegarde.json";
-    a.style.display = "none";
+    a.style.position = "fixed";
+    a.style.left = "-10000px";
     document.body.appendChild(a);
     a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 120000);
-    status("backupStatus", `Sauvegarde préparée : ${records.length} fiche(s), photos incluses. Vérifie dans Fichiers > Téléchargements que le fichier a bien été enregistré.`);
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 120000);
+    status("backupStatus", `Sauvegarde préparée : ${records.length} fiche(s), photos comprises. Vérifie Fichiers > Téléchargements.`);
   } catch (e) {
-    console.error("Échec export Scan Châssis", e);
+    console.error("Export sauvegarde impossible", e);
     status("backupStatus", "Échec de la sauvegarde : " + (e?.message || String(e)), true);
   }
 });
 
-// Import : fusionne les fiches, conserve les données existantes et ignore les doublons.
-$("importInput").addEventListener("change", async e => {
-  const input = e.currentTarget;
-  const file = input.files && input.files[0];
-  if (!file) {
-    status("backupStatus", "Aucun fichier sélectionné.", true);
-    return;
-  }
-  status("backupStatus", `Fichier sélectionné : ${file.name}. Lecture en cours…`);
-  try {
-    if (!db) await openDB();
-    const text = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error || new Error("Impossible de lire le fichier sélectionné."));
-      reader.readAsText(file);
-    });
-    const parsed = JSON.parse(text.replace(/^\uFEFF/, ""));
-    if (!parsed || !Array.isArray(parsed.records)) {
-      throw new Error("Ce fichier ne contient pas de liste « records ». Choisis une sauvegarde JSON créée par Scan Châssis.");
-    }
-    if (!confirm(`Importer ${parsed.records.length} fiche(s) depuis « ${file.name} » ? Les fiches déjà présentes seront conservées.`)) {
-      status("backupStatus", "Import annulé. Aucune fiche n’a été modifiée.");
+const importInput = $("importInput");
+if (importInput) {
+  // Sur iPhone, afficher un retour dès que le sélecteur renvoie un fichier.
+  importInput.addEventListener("change", async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) {
+      status("backupStatus", "Aucun fichier reçu. Réessaie et choisis le fichier JSON dans Fichiers.", true);
       return;
     }
-    let added = 0, skipped = 0, invalid = 0;
-    // Charger les fiches existantes une seule fois, puis actualiser la liste en mémoire.
-    const known = await allRecords();
-    for (const item of parsed.records) {
-      if (!item || item.orderNo == null || item.frameNo == null || !String(item.orderNo).trim() || !String(item.frameNo).trim()) {
-        invalid++;
-        continue;
+    status("backupStatus", `Fichier reçu : ${file.name} (${Math.round(file.size / 1024)} Ko). Lecture…`);
+    try {
+      if (!db) await openDB();
+      const textContent = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("iPhone n’a pas réussi à lire le fichier sélectionné."));
+        reader.onabort = () => reject(new Error("Lecture du fichier annulée."));
+        reader.readAsText(file, "UTF-8");
+      });
+      const parsed = JSON.parse(textContent.replace(/^\uFEFF/, ""));
+      if (!parsed || !Array.isArray(parsed.records)) throw new Error("Ce fichier ne contient pas une sauvegarde Scan Châssis valide.");
+      const valid = parsed.records.filter(item => item && item.orderNo && item.frameNo);
+      if (!valid.length) throw new Error("Aucune fiche valide trouvée dans la sauvegarde.");
+      const confirmed = confirm(`Sauvegarde trouvée : ${valid.length} fiche(s). Les fiches actuelles seront conservées. Continuer l’importation ?`);
+      if (!confirmed) {
+        status("backupStatus", "Importation annulée. Aucune fiche n’a été modifiée.");
+        return;
       }
-      const orderNo = String(item.orderNo).trim();
-      const frameNo = String(item.frameNo).trim();
-      const operations = OPS.filter(op => Array.isArray(item.operations) && item.operations.includes(op));
-      const duplicate = known.some(r =>
-        String(r.orderNo || "").trim() === orderNo &&
-        String(r.frameNo || "").trim() === frameNo &&
-        JSON.stringify(r.operations || []) === JSON.stringify(operations)
-      );
-      if (duplicate) { skipped++; continue; }
-      const record = {
-        clientName: String(item.clientName || ""),
-        orderNo,
-        frameNo,
-        operations,
-        notes: String(item.notes || ""),
-        ocrText: String(item.ocrText || ""),
-        photo: typeof item.photo === "string" ? item.photo : null,
-        photoType: String(item.photoType || "image/jpeg"),
-        createdAt: Number(item.createdAt) || Date.now(),
-        updatedAt: Number(item.updatedAt) || Number(item.createdAt) || Date.now()
-      };
-      const id = await saveRecord(record);
-      record.id = id;
-      known.push(record);
-      added++;
+      let added = 0, skipped = 0;
+      // Lire l’historique une seule fois puis actualiser après l’import.
+      const existing = await allRecords();
+      for (const item of valid) {
+        const operations = OPS.filter(op => Array.isArray(item.operations) && item.operations.includes(op));
+        const duplicate = existing.some(r =>
+          String(r.orderNo) === String(item.orderNo) &&
+          String(r.frameNo) === String(item.frameNo) &&
+          JSON.stringify(r.operations || []) === JSON.stringify(operations)
+        );
+        if (duplicate) { skipped++; continue; }
+        await saveRecord({
+          clientName: String(item.clientName || ""),
+          orderNo: String(item.orderNo),
+          frameNo: String(item.frameNo),
+          operations,
+          notes: String(item.notes || ""),
+          ocrText: String(item.ocrText || ""),
+          photo: typeof item.photo === "string" ? item.photo : null,
+          photoType: String(item.photoType || "image/jpeg"),
+          createdAt: Number(item.createdAt) || Date.now(),
+          updatedAt: Number(item.updatedAt) || Number(item.createdAt) || Date.now()
+        });
+        added++;
+      }
+      await refreshRecords();
+      status("backupStatus", `Import terminé : ${added} fiche(s) ajoutée(s), ${skipped} déjà présente(s) ignorée(s). Photos restaurées lorsqu’elles sont incluses dans le fichier.`);
+    } catch (err) {
+      console.error("Import sauvegarde impossible", err);
+      status("backupStatus", "Import impossible : " + (err?.message || String(err)), true);
+    } finally {
+      // Permet de choisir à nouveau le même fichier au prochain essai.
+      e.target.value = "";
     }
-    await refreshRecords();
-    status("backupStatus", `Import terminé : ${added} ajoutée(s), ${skipped} doublon(s) ignoré(s), ${invalid} fiche(s) invalide(s).`);
-  } catch (err) {
-    console.error("Échec import Scan Châssis", err);
-    status("backupStatus", "Import impossible : " + (err?.message || String(err)), true);
-  } finally {
-    // Autorise à sélectionner à nouveau le même fichier sur iPhone.
-    input.value = "";
-  }
-});
-
+  });
+}
 let currentSummaryRows = [];
 function dateInputValue(date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -1040,5 +1023,4 @@ $('summaryEnd').value = today;
       history.replaceChildren(error);
     }
   }
-})();
 })();
