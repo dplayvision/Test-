@@ -18,10 +18,10 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 #preview{width:100%;max-height:320px;min-height:80px;object-fit:contain;background:#f1f5f9;border-radius:12px;margin-top:10px;display:block;transform:rotate(var(--preview-rotation, 0deg))}#preview[src=""]{display:none}#cameraInput{display:none}#liveVideo{transform:translateZ(0)}button:disabled{opacity:.45;cursor:not-allowed}.badge{display:inline-block;border-radius:999px;background:#e8efff;color:#1d4ed8;padding:4px 9px;font-size:12px;font-weight:800}
 .record{border:1px solid var(--line);border-radius:13px;padding:12px;margin-top:10px}.record-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.record h3{margin:0 0 5px;font-size:16px;overflow-wrap:anywhere}.record p{margin:4px 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}.record img{width:100%;max-height:220px;object-fit:contain;border-radius:9px;background:#f1f5f9;margin-top:10px}.record .actions button{font-size:13px;padding:9px}
 
-.record-one-line{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;font-size:12px;line-height:1.25;overflow:hidden}
+.record-one-line{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;font-size:14px;font-weight:800;line-height:1.3;overflow:hidden}
 .record-one-line>span{flex-shrink:0}
-.record-one-line .record-date{font-size:10px;color:var(--muted)}
-.record-one-line .record-ops{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.record-one-line .record-date{font-size:11px;font-weight:700;color:var(--muted)}
+.record-one-line .record-ops{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:800}
 .record-summary{padding:9px 10px;gap:7px}
 .record-chevron{font-size:16px}
 
@@ -50,6 +50,19 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 .crop-panel{width:min(100%,760px);max-height:95dvh;overflow:auto;background:#fff;border-radius:18px;padding:14px}
 #cropCanvas{display:block;max-width:100%;height:auto;margin:12px auto;border-radius:8px;touch-action:none;cursor:crosshair;background:#e2e8f0}
 .crop-title{font-size:19px;font-weight:800;margin:2px 0 6px}.crop-help{font-size:13px;color:#65718a;line-height:1.4}.crop-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.crop-tools button{flex:1;min-width:110px}
+
+/* Ligne d'historique : légèrement plus grande et en gras */
+.record-one-line{font-size:14px;font-weight:800;line-height:1.3}
+.record-one-line .record-date{font-size:11px;font-weight:700}
+.record-one-line .record-ops{font-weight:800}
+
+
+/* Affichage demandé : texte noir et gras, date légèrement plus petite */
+.record-one-line{color:#000;font-weight:800;font-size:14px}
+.record-one-line span{color:#000;font-weight:800}
+.record-one-line .record-date{color:#000;font-size:11px;font-weight:700}
+.record-one-line .record-ops{color:#000;font-weight:800}
+
 </style>
 </head>
 <body>
