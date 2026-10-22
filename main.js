@@ -177,56 +177,6 @@ function renderRecord(record) {
   });
   return article;
 }
-function renderRecord(record) {
-  const article = document.createElement("article");
-  article.className = "record record-compact";
-
-  const timestamp = record.updatedAt || record.createdAt;
-  const date = timestamp ? new Date(timestamp).toLocaleDateString("fr-BE") : "—";
-  const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
-  const notes = String(record.notes || "").trim();
-
-  article.innerHTML = `
-    <details class="record-details">
-      <summary class="record-summary">
-        <div class="record-summary-main">
-          <h3>Commande ${escapeHTML(record.orderNo || "—")}</h3>
-          <div class="record-summary-meta">
-            <span><strong>N° opération :</strong> ${ops || "—"}</span>
-            <span><strong>Date :</strong> ${escapeHTML(date)}</span>
-            <span><strong>Remarque :</strong> ${escapeHTML(notes || "—")}</span>
-          </div>
-        </div>
-        <span class="record-chevron" aria-hidden="true">⌄</span>
-      </summary>
-      <div class="record-full">
-        <p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p>
-        <p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo || "—")}</strong></p>
-        <p>Date et heure : ${escapeHTML(timestamp ? new Date(timestamp).toLocaleString("fr-BE") : "—")}</p>
-        <div class="field"><strong>Opérations :</strong><div>${ops || "Aucune opération cochée"}</div></div>
-        <div class="field"><strong>Remarque :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(notes || "—")}</div></div>
-        ${record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : ""}
-        ${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}
-        <div class="actions">
-          <button type="button" class="secondary edit">✏️ Modifier</button>
-          <button type="button" class="danger delete">🗑️ Supprimer</button>
-        </div>
-      </div>
-    </details>`;
-
-  article.querySelector(".edit").addEventListener("click", () => loadForm(record));
-  article.querySelector(".delete").addEventListener("click", async () => {
-    if (!confirm(`Supprimer la fiche commande ${record.orderNo}, châssis ${record.frameNo} ?`)) return;
-    try {
-      await deleteRecord(record.id);
-      await refreshRecords();
-      if (editingId === record.id) resetForm();
-    } catch (e) {
-      alert("Impossible de supprimer la fiche : " + e.message);
-    }
-  });
-  return article;
-}
 async function refreshRecords() {
   const container = $("records");
   try {
