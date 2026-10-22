@@ -121,16 +121,55 @@ function loadForm(record) {
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
+
+/* HISTORIQUE COMPACT : cliquer sur une commande ouvre tous ses détails. */
 function renderRecord(record) {
-  const article = document.createElement("article"); article.className = "record";
+  const article = document.createElement("article");
+  article.className = "record record-compact";
+
+  const timestamp = record.updatedAt || record.createdAt;
+  const date = timestamp ? new Date(timestamp).toLocaleDateString("fr-BE") : "—";
   const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
-  const rawTextBlock = record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : "";
-  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p><p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opération(s)</span></div><p>${ops || "Aucune opération cochée"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${rawTextBlock}${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}<div class="actions"><button type="button" class="secondary edit">✏️ Modifier</button><button type="button" class="danger delete">🗑️ Supprimer</button></div>`;
+  const notes = String(record.notes || "").trim();
+
+  article.innerHTML = `
+    <details class="record-details">
+      <summary class="record-summary">
+        <div class="record-summary-main">
+          <h3>Commande ${escapeHTML(record.orderNo || "—")}</h3>
+          <div class="record-summary-meta">
+            <span><strong>N° opération :</strong> ${ops || "—"}</span>
+            <span><strong>Date :</strong> ${escapeHTML(date)}</span>
+            <span><strong>Remarque :</strong> ${escapeHTML(notes || "—")}</span>
+          </div>
+        </div>
+        <span class="record-chevron" aria-hidden="true">⌄</span>
+      </summary>
+      <div class="record-full">
+        <p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p>
+        <p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo || "—")}</strong></p>
+        <p>Date et heure : ${escapeHTML(timestamp ? new Date(timestamp).toLocaleString("fr-BE") : "—")}</p>
+        <div class="field"><strong>Opérations :</strong><div>${ops || "Aucune opération cochée"}</div></div>
+        <div class="field"><strong>Remarque :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(notes || "—")}</div></div>
+        ${record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : ""}
+        ${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}
+        <div class="actions">
+          <button type="button" class="secondary edit">✏️ Modifier</button>
+          <button type="button" class="danger delete">🗑️ Supprimer</button>
+        </div>
+      </div>
+    </details>`;
+
   article.querySelector(".edit").addEventListener("click", () => loadForm(record));
   article.querySelector(".delete").addEventListener("click", async () => {
     if (!confirm(`Supprimer la fiche commande ${record.orderNo}, châssis ${record.frameNo} ?`)) return;
-    try { await deleteRecord(record.id); await refreshRecords(); if (editingId === record.id) resetForm(); }
-    catch (e) { alert("Impossible de supprimer la fiche : " + e.message); }
+    try {
+      await deleteRecord(record.id);
+      await refreshRecords();
+      if (editingId === record.id) resetForm();
+    } catch (e) {
+      alert("Impossible de supprimer la fiche : " + e.message);
+    }
   });
   return article;
 }
@@ -895,7 +934,6 @@ function buildSummaryCanvas() {
 $('saveSummaryImageBtn').addEventListener('click', () => {
   try { const canvas=buildSummaryCanvas(); canvas.toBlob(blob=>{ if(!blob){status('summaryStatus','Impossible de créer l’image.',true);return;} const url=URL.createObjectURL(blob); const w=window.open(url,'_blank'); if(!w){const a=document.createElement('a');a.href=url;a.download=`synthese-scan-chassis-${$('summaryStart').value}-${$('summaryEnd').value}.png`;a.click();} status('summaryStatus','Image créée. Sur iPhone, ouvre-la puis fais un appui long pour choisir Enregistrer dans Photos.'); setTimeout(()=>URL.revokeObjectURL(url),60000); },'image/png'); } catch(e){status('summaryStatus',e.message,true);}
 });
-
 
 const today = dateInputValue(new Date());
 $('summaryStart').value = today;
