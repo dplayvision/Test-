@@ -63,6 +63,31 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 .record-one-line .record-date{color:#000;font-size:11px;font-weight:700}
 .record-one-line .record-ops{color:#000;font-weight:800}
 
+
+/* FORCE le texte de la ligne d'historique en noir pur et en gras */
+#records .record .record-details .record-summary .record-one-line,
+#records .record .record-details .record-summary .record-one-line *,
+#records .record .record-details .record-summary .record-one-line span,
+#records .record .record-details .record-summary .record-one-line .record-date,
+#records .record .record-details .record-summary .record-one-line .record-ops {
+  color: #000000 !important;
+  font-weight: 800 !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+#records .record .record-details .record-summary .record-one-line .record-date {
+  font-size: 11px !important;
+}
+#records .record .record-details .record-summary .record-one-line {
+  font-size: 14px !important;
+}
+
+
+/* Ligne d’historique : noir pur, gras, plus grande, toujours sur une ligne */
+.record-one-line{display:block!important;color:#000!important;font-size:18px!important;font-weight:900!important;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.2px}
+.record-summary{align-items:center!important;padding:12px!important;gap:8px!important}
+.record-summary-main{min-width:0;flex:1}
+.record-chevron{color:#000!important;font-weight:900!important;font-size:20px!important;flex-shrink:0}
 </style>
 </head>
 <body>
