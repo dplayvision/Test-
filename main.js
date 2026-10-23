@@ -938,6 +938,7 @@ $("importInput").addEventListener("change", async e => {
   } catch (err) { status("backupStatus", "Import impossible : " + err.message, true); }
   finally { e.target.value = ""; }
 });
+
 let currentSummaryRows = [];
 function dateInputValue(date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -959,6 +960,7 @@ function csvCell(value) {
 }
 function renderSummary(rows) {
   const target = $('summaryResults');
+  if (!target) return;
   target.replaceChildren();
   if (!rows.length) {
     const empty = document.createElement('div');
@@ -994,14 +996,19 @@ function renderSummary(rows) {
   table.appendChild(tbody); wrap.appendChild(table); target.appendChild(wrap);
 }
 async function generateSummary() {
-  const startValue = $('summaryStart').value;
-  const endValue = $('summaryEnd').value;
+  const startInput = $('summaryStart'), endInput = $('summaryEnd');
+  const exportBtn = $('exportSummaryBtn');
+  if (!startInput || !endInput || !exportBtn) {
+    status('summaryStatus', 'La section de synthèse est absente du index.html.', true); return;
+  }
+  const startValue = startInput.value;
+  const endValue = endInput.value;
   if (!startValue || !endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    currentSummaryRows = []; exportBtn.disabled = true;
     status('summaryStatus', 'Choisis une date de début et une date de fin.', true); return;
   }
   if (startValue > endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    currentSummaryRows = []; exportBtn.disabled = true;
     status('summaryStatus', 'La date de début doit être antérieure ou égale à la date de fin.', true); return;
   }
   try {
@@ -1025,10 +1032,10 @@ async function generateSummary() {
     rows.sort((a, b) => a.timestamp - b.timestamp || a.orderNo.localeCompare(b.orderNo, 'fr') || a.operation.localeCompare(b.operation, 'fr'));
     currentSummaryRows = rows;
     renderSummary(rows);
-    $('exportSummaryBtn').disabled = rows.length === 0;
+    exportBtn.disabled = rows.length === 0;
     status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
   } catch (error) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
+    currentSummaryRows = []; exportBtn.disabled = true;
     status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
   }
 }
@@ -1044,7 +1051,8 @@ if ($('exportSummaryBtn')) $('exportSummaryBtn').addEventListener('click', () =>
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   status('summaryStatus', `${currentSummaryRows.length} ligne(s) exportée(s) en CSV compatible Excel.`);
 });
-// Enregistrement du tableau récapitulatif en image — fonction restaurée.
+
+// Création de l'image PNG de la synthèse.
 function buildSummaryCanvas() {
   if (!currentSummaryRows.length) throw new Error('Génère d’abord le tableau.');
   const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
@@ -1078,18 +1086,25 @@ function buildSummaryCanvas() {
   });
   return canvas;
 }
-if ($('saveSummaryImageBtn')) $('saveSummaryImageBtn').addEventListener('click', () => {
+if ($('saveSummaryImageBtn')) $('saveSummaryImageBtn').addEventListener('click', async () => {
   try {
-    const canvas=buildSummaryCanvas();
-    canvas.toBlob(blob=>{
-      if(!blob){status('summaryStatus','Impossible de créer l’image.',true);return;}
-      const url=URL.createObjectURL(blob);
-      const w=window.open(url,'_blank');
-      if(!w){const a=document.createElement('a');a.href=url;a.download=`synthese-scan-chassis-${$('summaryStart').value}-${$('summaryEnd').value}.png`;document.body.appendChild(a);a.click();a.remove();}
-      status('summaryStatus','Image créée. Sur iPhone, ouvre-la puis fais un appui long pour choisir Enregistrer dans Photos.');
-      setTimeout(()=>URL.revokeObjectURL(url),60000);
-    },'image/png');
-  } catch(e) { status('summaryStatus',e.message,true); }
+    const canvas = buildSummaryCanvas();
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(result => result ? resolve(result) : reject(new Error('Impossible de créer l’image PNG.')), 'image/png');
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `synthese-scan-chassis-${$('summaryStart')?.value || 'periode' }-${$('summaryEnd')?.value || ''}.png`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    status('summaryStatus', 'Image PNG préparée. Si le téléchargement ne démarre pas sur iPhone, ouvre le fichier depuis le navigateur puis utilise Partager > Enregistrer dans Photos.');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    status('summaryStatus', e.message || String(e), true);
+  }
 });
 
 // Connexion et synchronisation Google
