@@ -998,17 +998,18 @@ function renderSummary(rows) {
 async function generateSummary() {
   const startInput = $('summaryStart'), endInput = $('summaryEnd');
   const exportBtn = $('exportSummaryBtn');
-  if (!startInput || !endInput || !exportBtn) {
+  const imageBtn = $('saveSummaryImageBtn');
+  if (!startInput || !endInput || !exportBtn || !imageBtn) {
     status('summaryStatus', 'La section de synthèse est absente du index.html.', true); return;
   }
   const startValue = startInput.value;
   const endValue = endInput.value;
   if (!startValue || !endValue) {
-    currentSummaryRows = []; exportBtn.disabled = true;
+    currentSummaryRows = []; exportBtn.disabled = true; imageBtn.disabled = true;
     status('summaryStatus', 'Choisis une date de début et une date de fin.', true); return;
   }
   if (startValue > endValue) {
-    currentSummaryRows = []; exportBtn.disabled = true;
+    currentSummaryRows = []; exportBtn.disabled = true; imageBtn.disabled = true;
     status('summaryStatus', 'La date de début doit être antérieure ou égale à la date de fin.', true); return;
   }
   try {
@@ -1033,9 +1034,10 @@ async function generateSummary() {
     currentSummaryRows = rows;
     renderSummary(rows);
     exportBtn.disabled = rows.length === 0;
+    imageBtn.disabled = rows.length === 0;
     status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
   } catch (error) {
-    currentSummaryRows = []; exportBtn.disabled = true;
+    currentSummaryRows = []; exportBtn.disabled = true; imageBtn.disabled = true;
     status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
   }
 }
