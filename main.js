@@ -57,46 +57,112 @@ function localRecordId(record) {
 async function cloudSyncAll() {
   if (!cloudUser) throw new Error("Connecte-toi avec Google avant de synchroniser.");
   const statusEl = "cloudSyncStatus";
-  cloudStatus(statusEl,"Synchronisation en cours…");
+  cloudStatus(statusEl, "Synchronisation en cours…");
   const ref = cloudRecordsRef();
   const local = await allRecords();
   const remoteSnap = await getDocs(ref);
-  const remoteById = new Map(remoteSnap.docs.map(d=>[d.id,d.data()]));
-  let sent=0, received=0, skipped=0;
-  // Envoyer les fiches locales sans écraser une version cloud plus récente.
+  const remoteById = new Map(remoteSnap.docs.map(d => [d.id, d.data()]));
+  let sent = 0, received = 0, updated = 0, deleted = 0, skipped = 0;
+
+  // 1) Traiter d'abord les suppressions venues du cloud : ne jamais les renvoyer comme fiches actives.
   for (const rec of local) {
+    if (!rec.cloudId) continue;
+    const remote = remoteById.get(rec.cloudId);
+    if (remote?.deleted && Number(remote.updatedAtMs || 0) >= Number(rec.updatedAt || rec.createdAt || 0)) {
+      await deleteRecord(rec.id);
+      deleted++;
+    }
+  }
+
+  // 2) Envoyer les fiches locales. Si le cloud est plus récent, garder sa version et la fusionner plus bas.
+  const currentLocal = await allRecords();
+  for (const rec of currentLocal) {
     const cloudId = localRecordId(rec);
     const remote = remoteById.get(cloudId);
+    if (remote?.deleted) continue;
     const localTime = Number(rec.updatedAt || rec.createdAt || 0);
     const remoteTime = Number(remote?.updatedAtMs || 0);
     if (remote && remoteTime > localTime) continue;
+
     let photo = null;
-    try { photo = await compressPhotoForCloud(rec.photo); }
-    catch (e) { skipped++; cloudStatus(statusEl,`Photo ignorée pour commande ${rec.orderNo} : ${e.message}`,true); }
+    let photoFailed = false;
+    try {
+      photo = await compressPhotoForCloud(rec.photo);
+    } catch (e) {
+      photoFailed = true;
+      skipped++;
+      cloudStatus(statusEl, `Photo conservée dans le téléphone pour commande ${rec.orderNo} : ${e.message}`, true);
+    }
+    // Une erreur de compression ou une fiche sans photo ne doit jamais effacer une photo cloud existante.
+    if (!photo && remote?.photo) photo = remote.photo;
+    if (photoFailed && !remote?.photo && rec.photo) {
+      // Les autres champs peuvent être synchronisés, mais la photo locale reste intacte.
+    }
     const payload = {
-      cloudId, clientName: String(rec.clientName||""), orderNo: String(rec.orderNo||""), frameNo: String(rec.frameNo||""),
-      operations: Array.isArray(rec.operations)?rec.operations:[], notes:String(rec.notes||""), ocrText:String(rec.ocrText||""),
-      photo, photoType: photo ? "image/jpeg" : (rec.photoType||"image/jpeg"),
-      createdAt: Number(rec.createdAt||Date.now()), updatedAtMs: localTime || Date.now(), syncedAt: serverTimestamp(), deleted:false
+      cloudId,
+      clientName: String(rec.clientName || ""),
+      orderNo: String(rec.orderNo || ""),
+      frameNo: String(rec.frameNo || ""),
+      operations: Array.isArray(rec.operations) ? rec.operations : [],
+      notes: String(rec.notes || ""),
+      ocrText: String(rec.ocrText || ""),
+      photo: photo || null,
+      photoType: photo ? (photoFailed ? (remote?.photoType || "image/jpeg") : "image/jpeg") : (rec.photoType || "image/jpeg"),
+      createdAt: Number(rec.createdAt || remote?.createdAt || Date.now()),
+      updatedAtMs: Math.max(localTime, remoteTime),
+      syncedAt: serverTimestamp(),
+      deleted: false
     };
-    await setDoc(doc(ref,cloudId),payload); remoteById.set(cloudId,payload); sent++;
-    if (!rec.cloudId) { rec.cloudId=cloudId; await saveRecord(rec); }
+    await setDoc(doc(ref, cloudId), payload);
+    remoteById.set(cloudId, payload);
+    sent++;
+    if (!rec.cloudId) {
+      rec.cloudId = cloudId;
+      await saveRecord(rec);
+    }
   }
-  // Récupérer les fiches distantes absentes localement; les fiches existantes ne sont jamais effacées.
+
+  // 3) Fusionner les fiches cloud : créer celles qui manquent et mettre à jour celles qui sont plus récentes.
   const refreshed = await allRecords();
-  const knownCloudIds = new Set(refreshed.map(r=>r.cloudId).filter(Boolean));
-  for (const [cloudId,data] of remoteById) {
-    if (data.deleted || knownCloudIds.has(cloudId)) continue;
+  const localByCloudId = new Map(refreshed.filter(r => r.cloudId).map(r => [r.cloudId, r]));
+  for (const [cloudId, data] of remoteById) {
+    const existing = localByCloudId.get(cloudId);
+    if (data.deleted) {
+      if (existing && Number(data.updatedAtMs || 0) >= Number(existing.updatedAt || existing.createdAt || 0)) {
+        await deleteRecord(existing.id);
+        deleted++;
+      }
+      continue;
+    }
+    const remoteTime = Number(data.updatedAtMs || 0);
+    const localTime = Number(existing?.updatedAt || existing?.createdAt || 0);
+    if (existing && localTime >= remoteTime) continue;
     const record = {
-      cloudId, clientName:String(data.clientName||""), orderNo:String(data.orderNo||""), frameNo:String(data.frameNo||""),
-      operations:Array.isArray(data.operations)?data.operations:[], notes:String(data.notes||""), ocrText:String(data.ocrText||""),
-      photo:data.photo||null, photoType:data.photoType||"image/jpeg", createdAt:Number(data.createdAt||Date.now()), updatedAt:Number(data.updatedAtMs||Date.now())
+      ...(existing || {}),
+      ...(existing?.id ? { id: existing.id } : {}),
+      cloudId,
+      clientName: String(data.clientName || ""),
+      orderNo: String(data.orderNo || ""),
+      frameNo: String(data.frameNo || ""),
+      operations: Array.isArray(data.operations) ? data.operations : [],
+      notes: String(data.notes || ""),
+      ocrText: String(data.ocrText || ""),
+      // Ne pas remplacer une photo locale par une valeur vide provenant du cloud.
+      photo: data.photo || existing?.photo || null,
+      photoType: data.photo ? (data.photoType || "image/jpeg") : (existing?.photoType || data.photoType || "image/jpeg"),
+      createdAt: Number(data.createdAt || existing?.createdAt || Date.now()),
+      updatedAt: remoteTime || Date.now()
     };
     if (!record.orderNo || !record.frameNo) continue;
-    await saveRecord(record); received++;
+    await saveRecord(record);
+    if (existing) updated++; else received++;
   }
+
   await refreshRecords();
-  cloudStatus(statusEl,`Synchronisation terminée : ${sent} envoyée(s), ${received} récupérée(s).${skipped ? ` ${skipped} photo(s) non synchronisée(s).` : ""}${skipped ? " Consulte les messages ci-dessus et garde une sauvegarde JSON." : ""}`, false);
+  cloudStatus(statusEl,
+    `Synchronisation terminée : ${sent} envoyée(s), ${received} récupérée(s), ${updated} mise(s) à jour, ${deleted} suppression(s) répercutée(s).${skipped ? ` ${skipped} photo(s) non compressée(s) : elles restent sur le téléphone.` : ""}`,
+    skipped > 0
+  );
 }
 
 let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg", currentOCRText = "";
@@ -728,9 +794,9 @@ $("cropCanvas").addEventListener("pointerdown", startCropDrag);
 $("cropCanvas").addEventListener("pointermove", moveCropDrag);
 $("cropCanvas").addEventListener("pointerup", endCropDrag);
 $("cropCanvas").addEventListener("pointercancel", endCropDrag);
-$("autoCropBtn").addEventListener("click", autoDetectLabel);
-$("zoomInBtn").addEventListener("click", () => adjustCropZoom(0.88));
-$("zoomOutBtn").addEventListener("click", () => adjustCropZoom(1.12));
+if ($("autoCropBtn")) $("autoCropBtn").addEventListener("click", autoDetectLabel);
+if ($("zoomInBtn")) $("zoomInBtn").addEventListener("click", () => adjustCropZoom(0.88));
+if ($("zoomOutBtn")) $("zoomOutBtn").addEventListener("click", () => adjustCropZoom(1.12));
 $("readLabelBtn").addEventListener("click", runOCR);
 $("copyOcrBtn").addEventListener("click", async () => {
   const text = (ocrEditOpen ? $("ocrEditor").value : $("ocrResult").textContent).trim();
@@ -943,8 +1009,8 @@ async function generateSummary() {
     status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
   }
 }
-$('generateSummaryBtn').addEventListener('click', generateSummary);
-$('exportSummaryBtn').addEventListener('click', () => {
+if ($('generateSummaryBtn')) $('generateSummaryBtn').addEventListener('click', generateSummary);
+if ($('exportSummaryBtn')) $('exportSummaryBtn').addEventListener('click', () => {
   if (!currentSummaryRows.length) return;
   const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
   const lines = [headers, ...currentSummaryRows.map(row => [row.date, row.clientName, row.orderNo, row.frameNo, row.operation, row.notes])];
@@ -987,8 +1053,8 @@ onAuthStateChanged(auth, user => {
 });
 
 const today = dateInputValue(new Date());
-$('summaryStart').value = today;
-$('summaryEnd').value = today;
+if ($('summaryStart')) $('summaryStart').value = today;
+if ($('summaryEnd')) $('summaryEnd').value = today;
 
 (async () => {
   try { await openDB(); await refreshRecords(); }
