@@ -11,7 +11,7 @@
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
 header{padding:24px 18px 20px;background:linear-gradient(135deg,#173b82,#2563eb);color:#fff}header .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:800}header h1{margin:6px 0;font-size:27px;line-height:1.1}header p{margin:0;color:#e1eaff;font-size:14px}
 main{max-width:760px;margin:0 auto;padding:16px;display:grid;gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:var(--shadow)}h2{font-size:18px;margin:0 0 14px}label{display:block;font-weight:700;font-size:14px;margin:12px 0 6px}
-input[type=text],input[type=search],textarea{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;background:#fff;color:var(--ink);min-height:46px}input:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue)}
+input[type=text],input[type=search],input[type=date],textarea{width:100%;border:1px solid #cbd5e1;border-radius:11px;padding:12px;font:inherit;background:#fff;color:var(--ink);min-height:46px}input:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue)}
 button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:750;cursor:pointer;min-height:44px}.primary{background:var(--blue);color:#fff}.primary:active{background:var(--blue2)}.secondary{background:#e8efff;color:#1e40af}.danger{background:#fee2e2;color:#991b1b}.neutral{background:#edf1f7;color:#243047}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{flex:1}.hint{color:var(--muted);font-size:12px;line-height:1.45;margin:7px 0 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .op{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfcff;font-weight:650;font-size:14px;line-height:1.3}.op input{width:20px;height:20px;flex-shrink:0;accent-color:var(--blue);margin:0}
@@ -59,6 +59,20 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <label for="notes">Remarque (facultatif)</label><textarea id="notes" rows="2" placeholder="Une précision si nécessaire"></textarea><div class="actions"><button type="button" class="primary" id="saveBtn">💾 Enregistrer la fiche</button><button type="button" class="neutral" id="resetBtn">Nouvelle fiche / Effacer</button></div><div class="status" id="formStatus" aria-live="polite"></div></section>
 <section class="card"><h2>4. Historique et recherche</h2><label for="searchBox">Rechercher une commande ou un châssis</label><input id="searchBox" type="search" placeholder="Tape un numéro…"><div id="records"><div class="empty">Chargement des fiches…</div></div>
 <div class="actions"><button type="button" class="secondary" id="exportBtn">📤 Exporter sauvegarde</button><label class="file-button secondary" for="importInput" style="display:flex;align-items:center;justify-content:center;flex:1;margin:0">📥 Importer sauvegarde</label><input id="importInput" type="file" accept=".json,application/json" style="display:none"></div><p class="hint">L’export contient les fiches et les photos. Garde le fichier dans Fichiers/iCloud ou ailleurs. L’import fusionne les fiches et ne supprime pas celles déjà présentes.</p><div class="status" id="backupStatus" aria-live="polite"></div></section>
+<section class="card" id="summaryCard"><h2>5. Tableau récapitulatif par date</h2>
+<p class="hint">Choisis une date de début et une date de fin, puis génère le tableau des opérations enregistrées pendant cette période.</p>
+<div class="grid">
+  <div><label for="summaryStart">Date de début</label><input id="summaryStart" type="date"></div>
+  <div><label for="summaryEnd">Date de fin</label><input id="summaryEnd" type="date"></div>
+</div>
+<div class="actions"><button type="button" class="primary" id="generateSummaryBtn">📋 Générer le tableau</button></div>
+<div id="summaryResults"><div class="empty">Choisis une période puis génère le tableau.</div></div>
+<div class="actions">
+  <button type="button" class="secondary" id="exportSummaryBtn" disabled>📄 Exporter CSV</button>
+  <button type="button" class="secondary" id="saveSummaryImageBtn" disabled>🖼️ Enregistrer en image</button>
+</div>
+<div class="status" id="summaryStatus" aria-live="polite"></div>
+</section>
 <section class="card" id="cloudCard"><h2>☁️ Synchronisation Google</h2><p class="hint">Connecte-toi avec le même compte Google sur tes deux GSM pour transférer les fiches.</p><div class="actions"><button type="button" class="secondary" id="googleLoginBtn">Connexion Google</button><button type="button" class="neutral" id="googleLogoutBtn" hidden>Déconnexion</button></div><div class="status" id="cloudUserStatus" aria-live="polite">Non connecté</div><div class="actions"><button type="button" class="primary" id="cloudSyncBtn" disabled>Synchroniser les fiches</button></div><div class="status" id="cloudSyncStatus" aria-live="polite"></div><p class="hint">Les photos sont réduites avant l’envoi. Firestore limite chaque document à 1 Mio ; si une photo reste trop volumineuse, elle ne pourra pas être synchronisée. Garde les sauvegardes JSON en complément.</p></section>
 </main>
 <div id="cropModal" role="dialog" aria-modal="true" aria-label="Cadrer l’étiquette">
@@ -72,5 +86,6 @@ button,.file-button{border:0;border-radius:11px;padding:12px 14px;font:inherit;f
 <footer>Les fiches sont conservées sur cet appareil et peuvent être synchronisées avec Google. Export régulier conseillé.</footer>
 </body>
 </html>
+
 
 
