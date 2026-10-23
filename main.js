@@ -1086,26 +1086,50 @@ function buildSummaryCanvas() {
   });
   return canvas;
 }
-if ($('saveSummaryImageBtn')) $('saveSummaryImageBtn').addEventListener('click', async () => {
-  try {
-    const canvas = buildSummaryCanvas();
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(result => result ? resolve(result) : reject(new Error('Impossible de créer l’image PNG.')), 'image/png');
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `synthese-scan-chassis-${$('summaryStart')?.value || 'periode' }-${$('summaryEnd')?.value || ''}.png`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    status('summaryStatus', 'Image PNG préparée. Si le téléchargement ne démarre pas sur iPhone, ouvre le fichier depuis le navigateur puis utilise Partager > Enregistrer dans Photos.');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (e) {
-    status('summaryStatus', e.message || String(e), true);
-  }
-});
+if ($('saveSummaryImageBtn')) {
+  $('saveSummaryImageBtn').addEventListener('click', () => {
+    try {
+      const canvas = buildSummaryCanvas();
+      canvas.toBlob(blob => {
+        if (!blob) {
+          status('summaryStatus', 'Impossible de créer l’image PNG.', true);
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const opened = window.open(url, '_blank');
+
+        if (opened) {
+          status(
+            'summaryStatus',
+            'Image ouverte. Fais un appui long sur l’image, puis choisis Enregistrer dans Photos ou Enregistrer dans Fichiers.'
+          );
+          setTimeout(() => URL.revokeObjectURL(url), 120000);
+        } else {
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `synthese-scan-chassis-${$('summaryStart')?.value || 'periode'}-${$('summaryEnd')?.value || ''}.png`;
+          link.textContent = 'Ouvrir / enregistrer la synthèse PNG';
+          link.style.display = 'block';
+          link.style.marginTop = '12px';
+          link.style.fontWeight = 'bold';
+
+          const target = $('summaryStatus');
+          target.appendChild(document.createElement('br'));
+          target.appendChild(link);
+          status(
+            'summaryStatus',
+            'Le nouvel onglet a été bloqué. Utilise le lien ci-dessous pour ouvrir l’image.',
+            true
+          );
+          setTimeout(() => URL.revokeObjectURL(url), 120000);
+        }
+      }, 'image/png');
+    } catch (error) {
+      status('summaryStatus', 'Erreur image : ' + (error.message || String(error)), true);
+    }
+  });
+}
 
 // Connexion et synchronisation Google
 const loginBtn = document.getElementById("googleLoginBtn");
