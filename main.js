@@ -1,4 +1,7 @@
 import { PaddleOCR } from "@paddleocr/paddleocr-js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 (() => {
 "use strict";
@@ -6,6 +9,96 @@ import { PaddleOCR } from "@paddleocr/paddleocr-js";
 const DB_NAME = "scanChassisDB", DB_VERSION = 1, STORE = "fiches";
 const OPS = ["Empilage","Double empilage","Retour","Double retour","Soudage / Nettoyage ouvrants","Soudage / Nettoyage dormants"];
 const OCR_PLACEHOLDER = "Le texte reconnu apparaîtra ici.";
+
+// Même projet Firebase que Mes paiements. La clé apiKey est une configuration web publique.
+const firebaseConfig = {
+  apiKey: "AIzaSyD8FfX9uljCWJi1fg3hE5poocXOCAH-H9A",
+  authDomain: "mes-paiements-jeremy.firebaseapp.com",
+  projectId: "mes-paiements-jeremy",
+  storageBucket: "mes-paiements-jeremy.firebasestorage.app",
+  messagingSenderId: "1085958529684",
+  appId: "1:108595852968:web:99e5514798cf0b8f098a81"
+};
+const firebaseApp = initializeApp(firebaseConfig, "scan-chassis-sync");
+const auth = getAuth(firebaseApp);
+const cloudDB = getFirestore(firebaseApp);
+let cloudUser = null;
+const CLOUD_APP_ID = "scan-chassis";
+function cloudStatus(id, message, error = false) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = message; el.style.color = error ? "#b91c1c" : "#15803d"; }
+}
+function cloudRecordsRef() {
+  if (!cloudUser) throw new Error("Connecte-toi d’abord avec Google.");
+  return collection(cloudDB, "users", cloudUser.uid, "apps", CLOUD_APP_ID, "records");
+}
+function dataUrlToBlob(dataUrl) {
+  const parts = dataUrl.split(","), mime = (parts[0].match(/:(.*?);/) || [,"image/jpeg"])[1];
+  const raw = atob(parts[1]); const bytes = new Uint8Array(raw.length);
+  for (let i=0;i<raw.length;i++) bytes[i] = raw.charCodeAt(i);
+  return new Blob([bytes], {type:mime});
+}
+async function compressPhotoForCloud(dataUrl) {
+  if (!dataUrl || !dataUrl.startsWith("data:image/")) return null;
+  const img = new Image(); img.src = dataUrl;
+  await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error("Photo illisible"));});
+  const maxSide = 1100, scale = Math.min(1, maxSide / Math.max(img.naturalWidth,img.naturalHeight));
+  const canvas = document.createElement("canvas"); canvas.width=Math.max(1,Math.round(img.naturalWidth*scale)); canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+  const ctx=canvas.getContext("2d"); ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  let quality=.68, result=canvas.toDataURL("image/jpeg",quality);
+  while (result.length > 650000 && quality > .35) { quality-=.08; result=canvas.toDataURL("image/jpeg",quality); }
+  if (result.length > 700000) throw new Error("Photo trop volumineuse pour Firestore même après compression. Exporte la sauvegarde JSON pour garder cette photo.");
+  return result;
+}
+function localRecordId(record) {
+  if (record.cloudId) return record.cloudId;
+  return "r_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now()+"_"+Math.random().toString(36).slice(2));
+}
+async function cloudSyncAll() {
+  if (!cloudUser) throw new Error("Connecte-toi avec Google avant de synchroniser.");
+  const statusEl = "cloudSyncStatus";
+  cloudStatus(statusEl,"Synchronisation en cours…");
+  const ref = cloudRecordsRef();
+  const local = await allRecords();
+  const remoteSnap = await getDocs(ref);
+  const remoteById = new Map(remoteSnap.docs.map(d=>[d.id,d.data()]));
+  let sent=0, received=0, skipped=0;
+  // Envoyer les fiches locales sans écraser une version cloud plus récente.
+  for (const rec of local) {
+    const cloudId = localRecordId(rec);
+    const remote = remoteById.get(cloudId);
+    const localTime = Number(rec.updatedAt || rec.createdAt || 0);
+    const remoteTime = Number(remote?.updatedAtMs || 0);
+    if (remote && remoteTime > localTime) continue;
+    let photo = null;
+    try { photo = await compressPhotoForCloud(rec.photo); }
+    catch (e) { skipped++; cloudStatus(statusEl,`Photo ignorée pour commande ${rec.orderNo} : ${e.message}`,true); }
+    const payload = {
+      cloudId, clientName: String(rec.clientName||""), orderNo: String(rec.orderNo||""), frameNo: String(rec.frameNo||""),
+      operations: Array.isArray(rec.operations)?rec.operations:[], notes:String(rec.notes||""), ocrText:String(rec.ocrText||""),
+      photo, photoType: photo ? "image/jpeg" : (rec.photoType||"image/jpeg"),
+      createdAt: Number(rec.createdAt||Date.now()), updatedAtMs: localTime || Date.now(), syncedAt: serverTimestamp(), deleted:false
+    };
+    await setDoc(doc(ref,cloudId),payload); remoteById.set(cloudId,payload); sent++;
+    if (!rec.cloudId) { rec.cloudId=cloudId; await saveRecord(rec); }
+  }
+  // Récupérer les fiches distantes absentes localement; les fiches existantes ne sont jamais effacées.
+  const refreshed = await allRecords();
+  const knownCloudIds = new Set(refreshed.map(r=>r.cloudId).filter(Boolean));
+  for (const [cloudId,data] of remoteById) {
+    if (data.deleted || knownCloudIds.has(cloudId)) continue;
+    const record = {
+      cloudId, clientName:String(data.clientName||""), orderNo:String(data.orderNo||""), frameNo:String(data.frameNo||""),
+      operations:Array.isArray(data.operations)?data.operations:[], notes:String(data.notes||""), ocrText:String(data.ocrText||""),
+      photo:data.photo||null, photoType:data.photoType||"image/jpeg", createdAt:Number(data.createdAt||Date.now()), updatedAt:Number(data.updatedAtMs||Date.now())
+    };
+    if (!record.orderNo || !record.frameNo) continue;
+    await saveRecord(record); received++;
+  }
+  await refreshRecords();
+  cloudStatus(statusEl,`Synchronisation terminée : ${sent} envoyée(s), ${received} récupérée(s).${skipped ? ` ${skipped} photo(s) non synchronisée(s).` : ""}${skipped ? " Consulte les messages ci-dessus et garde une sauvegarde JSON." : ""}`, false);
+}
+
 let db = null, ocrInstance = null, currentPhoto = null, currentPhotoType = "image/jpeg", currentOCRText = "";
 let previewUrl = null, liveStream = null, isReading = false, editingId = null, ocrEditOpen = false, photoRotation = 0;
 let cropImage = null, cropRect = null, cropDrag = null, cropScale = 1, originalLabelPhoto = null, originalLabelPhotoType = "image/jpeg";
@@ -121,39 +214,20 @@ function loadForm(record) {
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
-
-/* HISTORIQUE COMPACT : ligne unique, noir foncé et gras. */
 function renderRecord(record) {
-  const article = document.createElement("article");
-  article.className = "record record-compact";
-  const timestamp = record.updatedAt || record.createdAt;
-  const date = timestamp ? new Date(timestamp).toLocaleDateString("fr-BE", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "—";
+  const article = document.createElement("article"); article.className = "record";
   const ops = (record.operations || []).map(op => `<span class="badge">${escapeHTML(op)}</span>`).join(" ");
-  const opsText = (record.operations || []).join(", ") || "—";
-  const notes = String(record.notes || "").trim();
-  const summaryLine = `${date} • ${record.orderNo || "—"} • ${record.frameNo || "—"} • ${opsText}`;
-  article.innerHTML = `
-    <details class="record-details">
-      <summary class="record-summary">
-        <div class="record-summary-main"><div class="record-one-line">${escapeHTML(summaryLine)}</div></div>
-        <span class="record-chevron" aria-hidden="true">⌄</span>
-      </summary>
-      <div class="record-full">
-        <p>Commande : <strong>${escapeHTML(record.orderNo || "—")}</strong></p>
-        <p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p>
-        <p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo || "—")}</strong></p>
-        <p>Date et heure : ${escapeHTML(timestamp ? new Date(timestamp).toLocaleString("fr-BE") : "—")}</p>
-        <div class="field"><strong>Opérations :</strong><div>${ops || "Aucune opération cochée"}</div></div>
-        <div class="field"><strong>Remarque :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(notes || "—")}</div></div>
-        ${record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : ""}
-        ${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}
-        <div class="actions"><button type="button" class="secondary edit">✏️ Modifier</button><button type="button" class="danger delete">🗑️ Supprimer</button></div>
-      </div>
-    </details>`;
+  const rawTextBlock = record.ocrText ? `<div class="field"><strong>Texte brut reconnu :</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHTML(record.ocrText)}</div></div>` : "";
+  article.innerHTML = `<div class="record-top"><div><h3>Commande ${escapeHTML(record.orderNo)}</h3><p>Client : <strong>${escapeHTML(record.clientName || "—")}</strong></p><p>Châssis / code-barres : <strong>${escapeHTML(record.frameNo)}</strong></p><p>${new Date(record.updatedAt || record.createdAt).toLocaleString("fr-BE")}</p></div><span class="badge">${(record.operations || []).length} opération(s)</span></div><p>${ops || "Aucune opération cochée"}</p>${record.notes ? `<p>Remarque : ${escapeHTML(record.notes)}</p>` : ""}${rawTextBlock}${record.photo ? `<img alt="Photo originale de l’étiquette" src="${record.photo}">` : "<p>Pas de photo enregistrée</p>"}<div class="actions"><button type="button" class="secondary edit">✏️ Modifier</button><button type="button" class="danger delete">🗑️ Supprimer</button></div>`;
   article.querySelector(".edit").addEventListener("click", () => loadForm(record));
   article.querySelector(".delete").addEventListener("click", async () => {
     if (!confirm(`Supprimer la fiche commande ${record.orderNo}, châssis ${record.frameNo} ?`)) return;
-    try { await deleteRecord(record.id); await refreshRecords(); if (editingId === record.id) resetForm(); }
+    try {
+      if (cloudUser && record.cloudId) {
+        await setDoc(doc(cloudRecordsRef(), record.cloudId), { cloudId:record.cloudId, deleted:true, updatedAtMs:Date.now(), syncedAt:serverTimestamp() }, { merge:true });
+      }
+      await deleteRecord(record.id); await refreshRecords(); if (editingId === record.id) resetForm();
+    }
     catch (e) { alert("Impossible de supprimer la fiche : " + e.message); }
   });
   return article;
@@ -732,13 +806,12 @@ $("saveBtn").addEventListener("click", async () => {
       record.id = editingId;
       const old = await getRecord(editingId);
       record.createdAt = old?.createdAt || now;
+      if (old?.cloudId) record.cloudId = old.cloudId;
     } else record.createdAt = now;
-    await saveRecord(record);
+    editingId = await saveRecord(record);
+    $("saveBtn").textContent = "💾 Mettre à jour la fiche";
+    status("formStatus", "Fiche enregistrée avec succès, photo comprise et texte brut conservé.");
     await refreshRecords();
-    // Après chaque validation, vider le formulaire pour encoder la fiche suivante.
-    // La fiche sauvegardée reste dans l'historique et n'est pas supprimée.
-    resetForm();
-    status("formStatus", "Fiche enregistrée avec succès. Le formulaire est remis à zéro pour la suivante.");
   } catch (e) { status("formStatus", "Erreur d’enregistrement : " + e.message, true); }
 });
 $("resetBtn").addEventListener("click", () => { if (confirm("Effacer le formulaire et préparer une nouvelle fiche ?")) resetForm(); });
@@ -746,24 +819,12 @@ $("searchBox").addEventListener("input", refreshRecords);
 $("exportBtn").addEventListener("click", async () => {
   try {
     const records = await allRecords();
-    const backup = { app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records };
-    const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    // Nom fixe : garder exactement le même nom à chaque export.
-    // Utiliser le téléchargement classique de Safari plutôt que la feuille de partage,
-    // afin de retrouver le flux d'enregistrement habituel dans Fichiers sur iPhone.
-    a.href = url;
-    a.download = "scan-chassis-sauvegarde.json";
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus. Nom du fichier : scan-chassis-sauvegarde.json.`);
-  } catch (e) {
-    status("backupStatus", "Échec de la sauvegarde : " + (e?.message || e), true);
-  }
+    const blob = new Blob([JSON.stringify({ app: "Scan Châssis", version: 1, exportedAt: new Date().toISOString(), records })], { type: "application/json" });
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = `scan-chassis-sauvegarde-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    status("backupStatus", `${records.length} fiche(s) exportée(s), photos et textes bruts inclus.`);
+  } catch (e) { status("backupStatus", "Échec de l’export : " + e.message, true); }
 });
 $("importInput").addEventListener("change", async e => {
   const file = e.target.files?.[0]; if (!file) return;
@@ -847,11 +908,11 @@ async function generateSummary() {
   const startValue = $('summaryStart').value;
   const endValue = $('summaryEnd').value;
   if (!startValue || !endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
     status('summaryStatus', 'Choisis une date de début et une date de fin.', true); return;
   }
   if (startValue > endValue) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
     status('summaryStatus', 'La date de début doit être antérieure ou égale à la date de fin.', true); return;
   }
   try {
@@ -875,14 +936,10 @@ async function generateSummary() {
     rows.sort((a, b) => a.timestamp - b.timestamp || a.orderNo.localeCompare(b.orderNo, 'fr') || a.operation.localeCompare(b.operation, 'fr'));
     currentSummaryRows = rows;
     renderSummary(rows);
-    const hasRows = rows.length > 0;
-    $('exportSummaryBtn').disabled = !hasRows;
-    $('saveSummaryImageBtn').disabled = !hasRows;
-    $('exportSummaryBtn').style.opacity = hasRows ? '1' : '0.5';
-    $('saveSummaryImageBtn').style.opacity = hasRows ? '1' : '0.5';
+    $('exportSummaryBtn').disabled = rows.length === 0;
     status('summaryStatus', `${rows.length} ligne(s) affichée(s), doublons identiques ignorés. Période : ${startValue} au ${endValue}.`);
   } catch (error) {
-    currentSummaryRows = []; $('exportSummaryBtn').disabled = true; $('saveSummaryImageBtn').disabled = true;
+    currentSummaryRows = []; $('exportSummaryBtn').disabled = true;
     status('summaryStatus', 'Impossible de générer la synthèse : ' + (error.message || error), true);
   }
 }
@@ -898,26 +955,35 @@ $('exportSummaryBtn').addEventListener('click', () => {
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   status('summaryStatus', `${currentSummaryRows.length} ligne(s) exportée(s) en CSV compatible Excel.`);
 });
-
-function buildSummaryCanvas() {
-  if (!currentSummaryRows.length) throw new Error('Génère d’abord le tableau.');
-  const headers = ['Date fiche', 'Client', 'N° commande', 'N° châssis', 'Opération', 'Remarque'];
-  const rows = currentSummaryRows.map(r => [r.date, r.clientName || '—', r.orderNo || '—', r.frameNo || '—', r.operation || '—', r.notes || '—']);
-  const canvas = document.createElement('canvas');
-  const scale = 2, pad = 28, rowH = 42, headH = 48;
-  const widths = [120, 190, 145, 130, 270, 190];
-  const totalW = widths.reduce((a,b)=>a+b,0);
-  canvas.width = (totalW + pad*2) * scale; canvas.height = (pad*2 + headH + rows.length*rowH + 60) * scale;
-  const ctx = canvas.getContext('2d'); ctx.scale(scale, scale); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width/scale,canvas.height/scale);
-  ctx.fillStyle='#172033'; ctx.font='bold 24px Arial'; ctx.fillText('Synthèse Scan Châssis', pad, pad+24);
-  ctx.font='14px Arial'; ctx.fillStyle='#65718a'; ctx.fillText(`Période : ${$('summaryStart').value} au ${$('summaryEnd').value} — ${rows.length} ligne(s)`, pad, pad+46);
-  let y=pad+60; let x=pad; ctx.fillStyle='#e8efff'; ctx.fillRect(pad,y,totalW,headH); ctx.font='bold 13px Arial'; ctx.fillStyle='#172033';
-  headers.forEach((h,i)=>{ctx.fillText(h,x+8,y+28);x+=widths[i];}); y+=headH;
-  ctx.font='12px Arial'; rows.forEach((row,ri)=>{x=pad; if(ri%2) {ctx.fillStyle='#f5f7fb';ctx.fillRect(pad,y,totalW,rowH);} ctx.fillStyle='#172033'; row.forEach((v,i)=>{let text=String(v); const max=Math.floor((widths[i]-14)/6.5); if(text.length>max) text=text.slice(0,max-1)+'…'; ctx.fillText(text,x+8,y+25); x+=widths[i];}); ctx.strokeStyle='#dfe6f0';ctx.beginPath();ctx.moveTo(pad,y+rowH);ctx.lineTo(pad+totalW,y+rowH);ctx.stroke();y+=rowH;});
-  return canvas;
-}
-$('saveSummaryImageBtn').addEventListener('click', () => {
-  try { const canvas=buildSummaryCanvas(); canvas.toBlob(blob=>{ if(!blob){status('summaryStatus','Impossible de créer l’image.',true);return;} const url=URL.createObjectURL(blob); const w=window.open(url,'_blank'); if(!w){const a=document.createElement('a');a.href=url;a.download=`synthese-scan-chassis-${$('summaryStart').value}-${$('summaryEnd').value}.png`;a.click();} status('summaryStatus','Image créée. Sur iPhone, ouvre-la puis fais un appui long pour choisir Enregistrer dans Photos.'); setTimeout(()=>URL.revokeObjectURL(url),60000); },'image/png'); } catch(e){status('summaryStatus',e.message,true);}
+// Connexion et synchronisation Google
+const loginBtn = document.getElementById("googleLoginBtn");
+const logoutBtn = document.getElementById("googleLogoutBtn");
+const syncBtn = document.getElementById("cloudSyncBtn");
+if (loginBtn) loginBtn.addEventListener("click", async () => {
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (e) {
+    if (["auth/popup-blocked","auth/popup-closed-by-user","auth/cancelled-popup-request"].includes(e.code)) {
+      try { await signInWithRedirect(auth, new GoogleAuthProvider()); }
+      catch (err) { cloudStatus("cloudUserStatus", "Connexion impossible : "+err.message, true); }
+    } else cloudStatus("cloudUserStatus", "Connexion impossible : "+e.message, true);
+  }
+});
+if (logoutBtn) logoutBtn.addEventListener("click", async () => {
+  try { await signOut(auth); } catch(e) { cloudStatus("cloudUserStatus", e.message, true); }
+});
+if (syncBtn) syncBtn.addEventListener("click", async () => {
+  syncBtn.disabled = true;
+  try { await cloudSyncAll(); }
+  catch(e) { cloudStatus("cloudSyncStatus", "Échec de synchronisation : "+e.message, true); }
+  finally { syncBtn.disabled = !cloudUser; }
+});
+getRedirectResult(auth).catch(e => cloudStatus("cloudUserStatus", "Connexion Google : "+e.message, true));
+onAuthStateChanged(auth, user => {
+  cloudUser = user;
+  if (loginBtn) loginBtn.hidden = !!user;
+  if (logoutBtn) logoutBtn.hidden = !user;
+  if (syncBtn) syncBtn.disabled = !user;
+  cloudStatus("cloudUserStatus", user ? `Connecté : ${user.email || user.displayName || "compte Google"}` : "Non connecté à Google");
 });
 
 const today = dateInputValue(new Date());
@@ -925,22 +991,7 @@ $('summaryStart').value = today;
 $('summaryEnd').value = today;
 
 (async () => {
-  try {
-    await openDB();
-    await refreshRecords();
-    status("formStatus", "Base locale ouverte. Historique actualisé.");
-  } catch (e) {
-    console.error("Erreur au démarrage de Scan Châssis / accès aux fiches :", e);
-    const message = "Impossible de charger les fiches : " + (e?.message || String(e)) + ". Ne supprime pas les données du navigateur et ne réinstalle pas l’application.";
-    status("formStatus", message, true);
-    const history = $("records");
-    if (history) {
-      const error = document.createElement("div");
-      error.className = "empty";
-      error.style.color = "#b91c1c";
-      error.textContent = message;
-      history.replaceChildren(error);
-    }
-  }
+  try { await openDB(); await refreshRecords(); }
+  catch (e) { status("formStatus", "Impossible d’ouvrir la base locale : " + e.message, true); }
 })();
 })();
